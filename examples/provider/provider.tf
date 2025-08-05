@@ -2,7 +2,7 @@ terraform {
   required_providers {
     clickhouse = {
       version = "2.0.0"
-      source  = "hashicorp.com/ivanofthings/clickhouse"
+      source  = "hashicorp.com/64mb/clickhouse"
     }
   }
 }

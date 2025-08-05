@@ -3,10 +3,11 @@ package resourceuser
 import (
 	"context"
 	"fmt"
-	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
-	"github.com/IvanOfThings/terraform-provider-clickhouse/pkg/common"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"strings"
+
+	"github.com/64mb/terraform-provider-clickhouse/pkg/common"
+	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 )
 
 type CHUserService struct {

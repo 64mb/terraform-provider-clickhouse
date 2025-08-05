@@ -3,8 +3,9 @@ package resourcetable
 import (
 	"context"
 	"fmt"
+
+	"github.com/64mb/terraform-provider-clickhouse/pkg/common"
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
-	"github.com/IvanOfThings/terraform-provider-clickhouse/pkg/common"
 )
 
 type CHTableService struct {
