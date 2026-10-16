@@ -3,9 +3,10 @@ package resourcedb
 import (
 	"context"
 	"fmt"
-	resourcetable "github.com/IvanOfThings/terraform-provider-clickhouse/pkg/resources/table"
 
-	"github.com/IvanOfThings/terraform-provider-clickhouse/pkg/common"
+	resourcetable "github.com/64mb/terraform-provider-clickhouse/pkg/resources/table"
+
+	"github.com/64mb/terraform-provider-clickhouse/pkg/common"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"

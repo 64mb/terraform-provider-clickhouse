@@ -2,12 +2,13 @@ package testutils
 
 import (
 	"fmt"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
 	"strconv"
 	"testing"
 
-	"github.com/IvanOfThings/terraform-provider-clickhouse/pkg/provider"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+
+	"github.com/64mb/terraform-provider-clickhouse/pkg/provider"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 )
 

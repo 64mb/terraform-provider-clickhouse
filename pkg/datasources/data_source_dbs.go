@@ -4,7 +4,7 @@ import (
 	"context"
 	"log"
 
-	"github.com/IvanOfThings/terraform-provider-clickhouse/pkg/common"
+	"github.com/64mb/terraform-provider-clickhouse/pkg/common"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 )

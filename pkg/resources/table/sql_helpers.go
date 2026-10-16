@@ -2,8 +2,9 @@ package resourcetable
 
 import (
 	"fmt"
-	"github.com/IvanOfThings/terraform-provider-clickhouse/pkg/common"
 	"strings"
+
+	"github.com/64mb/terraform-provider-clickhouse/pkg/common"
 )
 
 func buildColumnsSentence(cols []ColumnResource) []string {
@@ -31,7 +32,7 @@ func buildPartitionBySentence(partitionBy []PartitionByResource) string {
 
 func buildOrderBySentence(orderBy []string) string {
 	if len(orderBy) > 0 {
-		return fmt.Sprintf("ORDER BY %v", strings.Join(orderBy, ", "))
+		return fmt.Sprintf("ORDER BY (%v)", strings.Join(orderBy, ", "))
 	}
 	return ""
 }

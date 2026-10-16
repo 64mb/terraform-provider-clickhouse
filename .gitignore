@@ -34,6 +34,8 @@ website/vendor
 *.winfile eol=crlf
 
 .env
+.env.gpg
 **/.terraform.lock.hcl
 
 /examples/resources/schema_migrations/**
+terraform-provider-clickhouse
