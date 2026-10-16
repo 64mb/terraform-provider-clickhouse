@@ -1,9 +1,7 @@
 version: '3'
 
 vars:
-  TEST:
-    sh: go list ./... | grep -v 'vendor'
-  HOSTNAME: hashicorp.com
+  HOSTNAME: registry.opentofu.org
   NAMESPACE: 64mb
   NAME: clickhouse
   BINARY: terraform-provider-{{.NAME}}
@@ -29,21 +27,9 @@ tasks:
       - go build -o {{.BINARY}}
 
   release:
-    desc: Build release binaries for multiple platforms
+    desc: Build unsigned local release packages without publishing
     cmds:
-      - mkdir -p ./bin
-      - GOOS=darwin GOARCH=amd64 go build -o ./bin/{{.BINARY}}_{{.VERSION}}_darwin_amd64
-      - GOOS=freebsd GOARCH=386 go build -o ./bin/{{.BINARY}}_{{.VERSION}}_freebsd_386
-      - GOOS=freebsd GOARCH=amd64 go build -o ./bin/{{.BINARY}}_{{.VERSION}}_freebsd_amd64
-      - GOOS=freebsd GOARCH=arm go build -o ./bin/{{.BINARY}}_{{.VERSION}}_freebsd_arm
-      - GOOS=linux GOARCH=386 go build -o ./bin/{{.BINARY}}_{{.VERSION}}_linux_386
-      - GOOS=linux GOARCH=amd64 go build -o ./bin/{{.BINARY}}_{{.VERSION}}_linux_amd64
-      - GOOS=linux GOARCH=arm go build -o ./bin/{{.BINARY}}_{{.VERSION}}_linux_arm
-      - GOOS=openbsd GOARCH=386 go build -o ./bin/{{.BINARY}}_{{.VERSION}}_openbsd_386
-      - GOOS=openbsd GOARCH=amd64 go build -o ./bin/{{.BINARY}}_{{.VERSION}}_openbsd_amd64
-      - GOOS=solaris GOARCH=amd64 go build -o ./bin/{{.BINARY}}_{{.VERSION}}_solaris_amd64
-      - GOOS=windows GOARCH=386 go build -o ./bin/{{.BINARY}}_{{.VERSION}}_windows_386
-      - GOOS=windows GOARCH=amd64 go build -o ./bin/{{.BINARY}}_{{.VERSION}}_windows_amd64
+      - goreleaser release --snapshot --clean --skip=publish,sign
 
   install:
     desc: Install the provider for Linux
@@ -62,10 +48,39 @@ tasks:
   test:
     desc: Run unit tests
     cmds:
-      - go test -i {{.TEST}} || exit 1
-      - echo "{{.TEST}}" | xargs -t -n4 go test {{.TESTARGS}} -timeout=30s -parallel=4
+      - go test -race -count=1 -skip '^(TestAcc|TestIntegration)' ./... {{.TESTARGS}} -timeout=2m
 
   doc:
     desc: Generate documentation
     cmds:
       - go generate ./...
+
+  test-table-integration:
+    desc: Run table integration tests against a disposable local ClickHouse 25.3 on port 19000
+    env:
+      CLICKHOUSE_TEST_ADDR: '127.0.0.1:19000'
+    cmds:
+      - go test -v -count=1 ./pkg/resources/table -run '^TestIntegration' -timeout=5m
+
+  test-table-lifecycle:
+    desc: Run Terraform table lifecycle tests against the same disposable local server
+    env:
+      TF_ACC: '1'
+      TF_CLICKHOUSE_HOST: '127.0.0.1'
+      TF_CLICKHOUSE_PORT: '19000'
+      TF_CLICKHOUSE_USERNAME: default
+      TF_CLICKHOUSE_PASSWORD: ''
+    cmds:
+      - go test -v -count=1 ./pkg/resources/table -run '^TestAccTable' -timeout=5m
+
+  release-check:
+    desc: Validate the signed registry release configuration without publishing
+    cmds:
+      - goreleaser check
+
+  test-table-topology:
+    desc: Run Replicated and Distributed tests against the isolated Keeper fixture on port 19001
+    env:
+      CLICKHOUSE_TOPOLOGY_TEST_ADDR: '127.0.0.1:19001'
+    cmds:
+      - go test -v -count=1 ./pkg/resources/table -run '^TestIntegrationTopologyImports$' -timeout=5m
