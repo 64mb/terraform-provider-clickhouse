@@ -2,62 +2,30 @@ package resourcetable
 
 import (
 	"fmt"
-
-	v "github.com/go-playground/validator/v10"
-	hashicorpcty "github.com/hashicorp/go-cty/cty"
+	cty "github.com/hashicorp/go-cty/cty"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
+	"strings"
 )
 
-func ValidatePartitionBy(inValue any, p hashicorpcty.Path) diag.Diagnostics {
-	validate := v.New()
-	value := inValue.(string)
-	toAllowedPartitioningFunctions := "toYYYYMM toYYYYMMDD toYYYYMMDDhhmmss"
-	validation := fmt.Sprintf("oneof=%v", toAllowedPartitioningFunctions)
-	var diags diag.Diagnostics
-	if validate.Var(value, validation) != nil {
-		diag := diag.Diagnostic{
-			Severity: diag.Error,
-			Summary:  "wrong value",
-			Detail:   fmt.Sprintf("%q is not %q", value, toAllowedPartitioningFunctions),
-		}
-		diags = append(diags, diag)
+func ValidateType(v interface{}, p cty.Path) diag.Diagnostics { return ValidateDataType(v, p) }
+func ValidatePartitionBy(v interface{}, p cty.Path) diag.Diagnostics {
+	switch v.(string) {
+	case "", "toYYYYMM", "toYYYYMMDD", "toYYYYMMDDhhmmss":
+		return nil
 	}
-	return diags
+	return diag.Errorf("unsupported partition function %q; put an expression in by instead", v)
 }
-
-func ValidateType(inValue any, p hashicorpcty.Path) diag.Diagnostics {
-	validate := v.New()
-	value := inValue.(string)
-	uintTypes := "UInt8 UInt16 UInt32 UInt64 UInt128 UInt256 Int8 Int16 Int32 Int64 Int128 Int256 Float32 Float64"
-	otherTypes := "Bool String UUID Date Date32 DateTime DateTime64 LowCardinality JSON"
-	validation := fmt.Sprintf("oneof=%v %v", uintTypes, otherTypes)
-	var diags diag.Diagnostics
-	if validate.Var(value, validation) != nil {
-		diag := diag.Diagnostic{
-			Severity: diag.Error,
-			Summary:  "wrong value",
-			Detail:   fmt.Sprintf("%q is not %q %q", value, uintTypes, otherTypes),
-		}
-		diags = append(diags, diag)
+func mergeTreeEngine(e string) bool {
+	e = strings.TrimPrefix(e, "Replicated")
+	switch e {
+	case "MergeTree", "ReplacingMergeTree", "SummingMergeTree", "AggregatingMergeTree", "CollapsingMergeTree", "VersionedCollapsingMergeTree", "GraphiteMergeTree":
+		return true
 	}
-	return diags
+	return false
 }
-
-func ValidateOnClusterEngine(inValue any, p hashicorpcty.Path) diag.Diagnostics {
-	validate := v.New()
-	value := inValue.(string)
-	mergeTreeTypes := "ReplacingMergeTree"
-	replicatedTypes := "ReplicatedMergeTree"
-	distributedTypes := "Distributed"
-	validation := fmt.Sprintf("oneof=%v %v %v", replicatedTypes, distributedTypes, mergeTreeTypes)
-	var diags diag.Diagnostics
-	if validate.Var(value, validation) != nil {
-		diag := diag.Diagnostic{
-			Severity: diag.Error,
-			Summary:  "wrong value",
-			Detail:   fmt.Sprintf("%q is not %q %q %q", value, replicatedTypes, distributedTypes, mergeTreeTypes),
-		}
-		diags = append(diags, diag)
+func ValidateOnClusterEngine(v interface{}, p cty.Path) diag.Diagnostics {
+	if v.(string) == "Distributed" || mergeTreeEngine(v.(string)) {
+		return nil
 	}
-	return diags
+	return diag.FromErr(fmt.Errorf("unsupported engine %q: use a MergeTree-family engine or Distributed", v))
 }
