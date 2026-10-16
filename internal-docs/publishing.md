@@ -33,11 +33,11 @@ The release workflow reruns the same checks, requires the tag commit to be on `m
 
 Repository Actions secrets:
 
-- `GPG_PRIVATE_KEY`: armored private signing key
-- `PASSPHRASE`: passphrase for that key
+- `OPENTOFU_GPG_PRIVATE_KEY`: armored private signing key
+- `OPENTOFU_GPG_PASSPHRASE`: passphrase for that key
 - `GITHUB_TOKEN`: supplied automatically by GitHub with release-job contents write permission
 
-The first two secret names already exist in the canonical repository as of 2026-10-16. Their values and signing-key validity were not inspected. No additional registry API token is required. The release workflow does not edit repository settings or register a new provider/key.
+The dedicated OpenTofu signing secrets were installed on 2026-10-16. The previous `GPG_PRIVATE_KEY` and `PASSPHRASE` secrets remain untouched. The workflow checks that the imported private key matches the committed public key before publishing. No additional registry API token is required. The release workflow does not edit repository settings or register a new provider/key.
 
 Run `task release-check` with GoReleaser 2.18.3 to validate the configuration without publishing. Each platform has one ZIP archive; the checksum file and GPG signature follow the [provider registry protocol](https://opentofu.org/docs/internals/provider-registry-protocol/).
 
@@ -55,3 +55,11 @@ The [OpenTofu registry contribution rules](https://github.com/opentofu/registry#
 The [signing-key form](https://github.com/opentofu/registry/blob/main/.github/ISSUE_TEMPLATE/provider_key.yml) requires public organization membership. The authenticated `goshander` account has public membership in `64mb` and repository admin/push access as of 2026-10-16. Registration still needs the public key and the form submission; repository permissions do not substitute for registry approval.
 
 After initial registration, the registry discovers provider releases from GitHub; continue publishing correctly signed releases from this repository. See the [registry inclusion policy](https://github.com/opentofu/registry/blob/main/POLICY.md) for the immutable-version policy.
+
+## Release signing key
+
+The public key for new releases is [keys/clickhouse-provider-signing.asc](../keys/clickhouse-provider-signing.asc). Its fingerprint is `2CB93B583D65802D1643F5CB86156326707BDF89`, with UID `64mb ClickHouse Provider Releases` and a signing-only RSA 4096-bit primary key. It has no expiration date; rotation or revocation is an explicit maintainer operation.
+
+Use the entire armored public-key file in the OpenTofu signing-key form. Private keys and passphrases belong only in Actions secrets and a protected local backup, never in this repository. Keep the private-key backup, passphrase and revocation certificate together in a protected backup location. The registry form is prepared separately and is not submitted by this change.
+
+The old `v0.0.0` release was signed with the previous key. Registering this new key does not validate older releases automatically. Publish a new immutable version after merging the release workflow changes; do not replace old release assets or move old tags.

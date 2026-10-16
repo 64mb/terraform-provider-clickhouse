@@ -40,8 +40,15 @@ jobs:
         uses: crazy-max/ghaction-import-gpg@v6
         id: import_gpg
         with:
-          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
-          passphrase: ${{ secrets.PASSPHRASE }}
+          gpg_private_key: ${{ secrets.OPENTOFU_GPG_PRIVATE_KEY }}
+          passphrase: ${{ secrets.OPENTOFU_GPG_PASSPHRASE }}
+      - name: Verify registered public key
+        env:
+          IMPORTED_FINGERPRINT: ${{ steps.import_gpg.outputs.fingerprint }}
+        run: |
+          expected_fingerprint=$(gpg --batch --with-colons --show-keys keys/clickhouse-provider-signing.asc | awk -F: '$1 == "fpr" {print $10; exit}')
+          test -n "$expected_fingerprint"
+          test "$IMPORTED_FINGERPRINT" = "$expected_fingerprint"
       - name: Publish signed provider packages
         uses: goreleaser/goreleaser-action@v6
         with:
