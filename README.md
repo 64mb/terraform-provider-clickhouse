@@ -1,18 +1,29 @@
 # Terraform Provider: Clickhouse (Terraform Plugin SDK)
 
-_This template repository is built on the [Terraform Plugin SDK](https://github.com/hashicorp/terraform-plugin-sdk). The template repository built on the [Terraform Plugin Framework](https://github.com/hashicorp/terraform-plugin-framework) can be found at [terraform-provider-scaffolding-framework](https://github.com/hashicorp/terraform-provider-scaffolding-framework). See [Which SDK Should I Use?](https://www.terraform.io/docs/plugin/which-sdk.html) in the Terraform documentation for additional information._
+Manage ClickHouse databases, tables, roles and users with Terraform or OpenTofu. This fork is maintained at [64mb/terraform-provider-clickhouse](https://github.com/64mb/terraform-provider-clickhouse).
 
-----
+Tables support complex types, existing-table import, supported ALTER operations and an explicit offline rebuild mode with retained originals. See the [table resource guide](docs/resources/table.md) for the exact compatibility and recovery contracts and [publishing guide](internal-docs/publishing.md) for signed releases and OpenTofu registration.
 
-This is a terraform provider plugin for managing Clickhouse databases and tables in a simple way.
+## Local verification
 
-_Note_: This provider it's in a very early state so only few table engines are allowed for replicated tables so far.
+Use a disposable ClickHouse server, never a production connection:
 
+```sh
+docker run -d --name clickhouse-provider-test -p 127.0.0.1:19000:9000 \
+  -e CLICKHOUSE_SKIP_USER_SETUP=1 clickhouse/clickhouse-server:25.3
+go test -race -count=1 -skip '^(TestAcc|TestIntegration)' ./...
+CLICKHOUSE_TEST_ADDR=127.0.0.1:19000 go test ./pkg/resources/table -run '^TestIntegration' -v
+TF_ACC=1 go test ./pkg/resources/table -run '^TestAccTable' -v
+# remove the disposable fixture after testing
+docker rm -f clickhouse-provider-test
+```
+
+The table lifecycle tests use only `127.0.0.1:19000`. Existing legacy acceptance tests use the `TF_CLICKHOUSE_*` environment variables. CI also runs the table lifecycle with Terraform and OpenTofu. To run against OpenTofu locally, install `tofu`, set `TF_ACC_TERRAFORM_PATH` to its absolute path, and run the same SDK acceptance tests.
 
 ## Requirements
 
 -	[Terraform](https://www.terraform.io/downloads.html) >= 0.13.x
--	[Go](https://golang.org/doc/install) >= 1.19
+-	[Go](https://golang.org/doc/install) >= 1.25 for development and CI
 
 ## Building The Provider
 

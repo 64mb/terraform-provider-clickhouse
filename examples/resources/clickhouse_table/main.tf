@@ -1,68 +1,43 @@
 terraform {
   required_providers {
     clickhouse = {
-      version = "2.0.0"
-      source  = "hashicorp.com/64mb/clickhouse"
+      source = "64mb/clickhouse"
     }
   }
 }
 
-provider "clickhouse" {
-  port = 8123
-}
+resource "clickhouse_table" "events" {
+  database = "default"
+  name     = "events"
+  engine   = "MergeTree"
+  order_by = ["toStartOfHour(event_time)", "id"]
 
-resource "clickhouse_db" "test_db_clustered" {
-  name    = "awesome_database"
-  comment = "This is an awesome database"
-  cluster = "'{cluster}'"
-}
-
-
-resource "clickhouse_table" "replicated_table" {
-  database      = clickhouse_db.test_db_clustered.name
-  name          = "replicated_table"
-  cluster       = "'{cluster}'"
-  engine        = "ReplicatedMergeTree"
-  engine_params = ["'/clickhouse/{installation}/{cluster}/tables/{shard}/{database}/{table}'", "'{replica}'"]
-  order_by      = ["event_date", "event_type"]
-  columns {
-    name = "event_date"
-    type = "Date"
-  }
-  columns {
-    name = "event_type"
-    type = "Int32"
-  }
-  columns {
-    name = "article_id"
-    type = "Int32"
-  }
-  columns {
-    name = "title"
-    type = "String"
-  }
   partition_by {
-    by = "event_type"
+    by = "toYYYYMM(event_time)"
   }
-  partition_by {
-    by                 = "event_date"
-    partition_function = "toYYYYMM"
+
+  column {
+    name = "event_time"
+    type = "DateTime64(9, 'UTC')"
   }
+  column {
+    name = "id"
+    type = "UUID"
+  }
+  column {
+    name               = "category"
+    type               = "LowCardinality(String)"
+    default_kind       = "DEFAULT"
+    default_expression = "'unknown'"
+    comment            = "event category"
+  }
+  column {
+    name = "attributes"
+    type = "Map(String, Array(Nullable(String)))"
+  }
+
+  settings = {
+    index_granularity = "8192"
+  }
+  comment = "Application events"
 }
-
-
-resource "clickhouse_table" "distributed_table" {
-  database = clickhouse_db.test_db_clustered.name
-  name     = "distributed_table"
-  cluster  = "'{cluster}'"
-  engine   = "Distributed"
-  engine_params = [
-    "'{cluster}'",
-    clickhouse_db.test_db_clustered.name,
-    clickhouse_table.replicated_table.name,
-  "rand()"]
-}
-
-
-
-
