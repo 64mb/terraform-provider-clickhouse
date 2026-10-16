@@ -12,36 +12,198 @@ type CHRoleService struct {
 	CHConnection *driver.Conn
 }
 
-func getGrantQuery(roleName string, privileges []string, database string) string {
-	if database == "system" || database == "*" {
-		return fmt.Sprintf("GRANT CURRENT GRANTS (%s ON %s.*) TO %s", strings.Join(privileges, ","), database, roleName)
+func getRevokeQuery(roleName string, privileges []string, database string) string {
+	// Separate global privileges from database-level privileges
+	var globalPrivileges []string
+	var dbPrivileges []string
+
+	for _, privilege := range privileges {
+		if IsGlobalPrivilege(privilege) {
+			globalPrivileges = append(globalPrivileges, privilege)
+		} else {
+			dbPrivileges = append(dbPrivileges, privilege)
+		}
 	}
-	return fmt.Sprintf("GRANT %s ON %s.* TO %s", strings.Join(privileges, ","), database, roleName)
+
+	var queries []string
+
+	// Revoke global privileges with ON *.* syntax
+	if len(globalPrivileges) > 0 {
+		queries = append(queries, fmt.Sprintf("REVOKE %s ON *.* FROM %s",
+			strings.Join(globalPrivileges, ","), roleName))
+	}
+
+	// Revoke database-level privileges with appropriate syntax
+	if len(dbPrivileges) > 0 {
+		queries = append(queries, fmt.Sprintf("REVOKE %s ON %s.* FROM %s",
+			strings.Join(dbPrivileges, ","), database, roleName))
+	}
+
+	return strings.Join(queries, "; ")
+}
+
+func getGrantQuery(roleName string, privileges []string, database string) string {
+	// Separate global privileges from database-level privileges
+	var globalPrivileges []string
+	var dbPrivileges []string
+
+	for _, privilege := range privileges {
+		if IsGlobalPrivilege(privilege) {
+			globalPrivileges = append(globalPrivileges, privilege)
+		} else {
+			dbPrivileges = append(dbPrivileges, privilege)
+		}
+	}
+
+	var queries []string
+
+	// Grant global privileges with ON *.* syntax (no CURRENT GRANTS wrapper)
+	if len(globalPrivileges) > 0 {
+		queries = append(queries, fmt.Sprintf("GRANT %s ON *.* TO %s",
+			strings.Join(globalPrivileges, ","), roleName))
+	}
+
+	// Grant database-level privileges with appropriate syntax
+	if len(dbPrivileges) > 0 {
+		if database == "system" || database == "*" {
+			queries = append(queries, fmt.Sprintf("GRANT CURRENT GRANTS (%s ON %s.*) TO %s",
+				strings.Join(dbPrivileges, ","), database, roleName))
+		} else {
+			queries = append(queries, fmt.Sprintf("GRANT %s ON %s.* TO %s",
+				strings.Join(dbPrivileges, ","), database, roleName))
+		}
+	}
+
+	return strings.Join(queries, "; ")
 }
 
 func (rs *CHRoleService) getRoleGrants(ctx context.Context, roleName string) ([]CHGrant, error) {
-	query := fmt.Sprintf("SELECT role_name, access_type, database FROM system.grants WHERE role_name = '%s'", roleName)
+	// Use SHOW GRANTS instead of SELECT from system.grants
+	// SHOW GRANTS returns the original granted privileges (e.g., REMOTE)
+	// system.grants returns expanded privileges (e.g., READ + WRITE)
+	query := fmt.Sprintf("SHOW GRANTS FOR %s", roleName)
 	rows, err := (*rs.CHConnection).Query(ctx, query)
 
 	if err != nil {
-		return nil, fmt.Errorf("error fetching role grants: %s", err)
+		return nil, fmt.Errorf("error fetching role grants: %w", err)
 	}
 
 	var privileges []CHGrant
 	for rows.Next() {
-		var privilege CHGrant
-		err := rows.ScanStruct(&privilege)
+		var grantStatement string
+		err := rows.Scan(&grantStatement)
 		if err != nil {
-			return nil, fmt.Errorf("error scanning role grant: %s", err)
+			return nil, fmt.Errorf("error scanning grant statement: %w", err)
 		}
-		if privilege.Database == "" {
-			privilege.Database = "*"
+
+		// Skip REVOKE statements - provider only manages GRANT privileges
+		// REVOKE statements appear in SHOW GRANTS output when partial revokes are used in ClickHouse
+		// (e.g., GRANT SELECT ON system.* followed by REVOKE SELECT ON system.specific_table)
+		if strings.HasPrefix(strings.ToUpper(strings.TrimSpace(grantStatement)), "REVOKE ") {
+			continue
 		}
-		privileges = append(privileges, privilege)
+
+		// Parse SHOW GRANTS output
+		// Example: "GRANT REMOTE ON *.* TO role_name"
+		// Example: "GRANT SELECT, INSERT ON database.* TO role_name"
+		grants, err := parseGrantStatement(grantStatement, roleName)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing grant statement '%s': %w", grantStatement, err)
+		}
+		privileges = append(privileges, grants...)
 	}
 
 	return privileges, nil
 }
+
+// parseGrantStatement parses a single ClickHouse SHOW GRANTS statement
+// and returns the corresponding CHGrant entries.
+//
+// Supported forms:
+//   - GRANT <privileges> ON *.* TO <role>
+//   - GRANT <privileges> ON <database>.* TO <role>
+//
+// Notes:
+//   - The role in the statement must match expectedRole
+//   - Table-level grants (<database>.<table>) are currently rejected
+//   - Privileges are split on commas and normalized via trimming
+func parseGrantStatement(statement, expectedRole string) ([]CHGrant, error) {
+	stmt := strings.TrimSpace(statement)
+
+	// Normalize keyword case for parsing, but keep original tokens
+	upper := strings.ToUpper(stmt)
+
+	if !strings.HasPrefix(upper, "GRANT ") {
+		return nil, fmt.Errorf("invalid grant statement (missing GRANT): %q", statement)
+	}
+
+	// Split into GRANT <privileges> ON <scope> TO <role>
+	grantBody := stmt[len("GRANT "):]
+	upperBody := upper[len("GRANT "):]
+
+	onIdx := strings.Index(upperBody, " ON ")
+	if onIdx == -1 {
+		return nil, fmt.Errorf("missing ' ON ' in grant statement: %s", statement)
+	}
+
+	privPart := strings.TrimSpace(grantBody[:onIdx])
+	rest := grantBody[onIdx+4:]
+	upperRest := upperBody[onIdx+4:]
+
+	toIdx := strings.Index(upperRest, " TO ")
+	if toIdx == -1 {
+		return nil, fmt.Errorf("missing ' TO ' in grant statement: %s", statement)
+	}
+
+	scopePart := strings.TrimSpace(rest[:toIdx])
+	rolePart := strings.TrimSpace(rest[toIdx+4:])
+
+	if rolePart != expectedRole {
+		return nil, fmt.Errorf(
+			"grant role mismatch: expected %q, got %q",
+			expectedRole, rolePart,
+		)
+	}
+
+	// Parse privileges
+	rawPrivileges := strings.Split(privPart, ",")
+	privileges := make([]string, 0, len(rawPrivileges))
+	for _, p := range rawPrivileges {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			return nil, fmt.Errorf("empty privilege in grant: %q", statement)
+		}
+		privileges = append(privileges, p)
+	}
+
+	// Parse scope
+	var database string
+	switch {
+	case scopePart == "*.*":
+		database = "*"
+
+	case strings.HasSuffix(scopePart, ".*"):
+		database = strings.TrimSuffix(scopePart, ".*")
+		if database == "" {
+			return nil, fmt.Errorf("invalid database scope: %q", scopePart)
+		}
+
+	default:
+		return nil, fmt.Errorf("table-level grants are not supported: %s", scopePart)
+	}
+
+	grants := make([]CHGrant, 0, len(privileges))
+	for _, p := range privileges {
+		grants = append(grants, CHGrant{
+			RoleName:   expectedRole,
+			AccessType: p,
+			Database:   database,
+		})
+	}
+
+	return grants, nil
+}
+
 
 func (rs *CHRoleService) GetRole(ctx context.Context, roleName string) (*CHRole, error) {
 	roleQuery := fmt.Sprintf("SELECT name FROM system.roles WHERE name = '%s'", roleName)
@@ -135,7 +297,7 @@ func (rs *CHRoleService) UpdateRole(ctx context.Context, rolePlan RoleResource, 
 	}
 
 	if len(revokePrivileges) > 0 {
-		err := conn.Exec(ctx, fmt.Sprintf("REVOKE %s ON %s.* FROM %s", strings.Join(revokePrivileges, ","), rolePlan.Database, rolePlan.Name))
+		err := conn.Exec(ctx, getRevokeQuery(rolePlan.Name, revokePrivileges, rolePlan.Database))
 		if err != nil {
 			return nil, fmt.Errorf("error revoking privileges from role %s: %v", chRole.Name, err)
 		}
