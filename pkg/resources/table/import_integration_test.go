@@ -38,7 +38,8 @@ func TestIntegrationImportExternalTables(t *testing.T) {
 	}{
 		{engine: "MergeTree", sortingKey: "(id, version)", orderBy: []interface{}{"id", "version"}},
 		{engine: "ReplacingMergeTree", args: "version", params: []string{"version"}, sortingKey: "(id, version)", orderBy: []interface{}{"id", "version"}},
-		{engine: "SummingMergeTree", args: "(version)", params: []string{"version"}, sortingKey: "id", orderBy: []interface{}{"id"}},
+		{engine: "SummingMergeTree", args: "version", params: []string{"version"}, sortingKey: "id", orderBy: []interface{}{"id"}},
+		{engine: "SummingMergeTree", args: "(version, sign)", params: []string{"(version, sign)"}, sortingKey: "id", orderBy: []interface{}{"id"}},
 		{engine: "AggregatingMergeTree", sortingKey: "(id, version)", orderBy: []interface{}{"id", "version"}},
 		{engine: "CollapsingMergeTree", args: "sign", params: []string{"sign"}, sortingKey: "(id, version)", orderBy: []interface{}{"id", "version"}},
 		{engine: "VersionedCollapsingMergeTree", args: "sign, version", params: []string{"sign", "version"}, sortingKey: "id", orderBy: []interface{}{"id", "version"}},
