@@ -33,13 +33,16 @@ func TestIntegrationImportExternalTables(t *testing.T) {
 	for _, tc := range []struct {
 		engine, args string
 		params       []string
+		sortingKey   string
+		orderBy      []interface{}
 	}{
-		{engine: "MergeTree"},
-		{engine: "ReplacingMergeTree", args: "version", params: []string{"version"}},
-		{engine: "SummingMergeTree", args: "(version)", params: []string{"version"}},
-		{engine: "AggregatingMergeTree"},
-		{engine: "CollapsingMergeTree", args: "sign", params: []string{"sign"}},
-		{engine: "VersionedCollapsingMergeTree", args: "sign, version", params: []string{"sign", "version"}},
+		{engine: "MergeTree", sortingKey: "(id, version)", orderBy: []interface{}{"id", "version"}},
+		{engine: "ReplacingMergeTree", args: "version", params: []string{"version"}, sortingKey: "(id, version)", orderBy: []interface{}{"id", "version"}},
+		{engine: "SummingMergeTree", args: "version", params: []string{"version"}, sortingKey: "id", orderBy: []interface{}{"id"}},
+		{engine: "SummingMergeTree", args: "(version, sign)", params: []string{"(version, sign)"}, sortingKey: "id", orderBy: []interface{}{"id"}},
+		{engine: "AggregatingMergeTree", sortingKey: "(id, version)", orderBy: []interface{}{"id", "version"}},
+		{engine: "CollapsingMergeTree", args: "sign", params: []string{"sign"}, sortingKey: "(id, version)", orderBy: []interface{}{"id", "version"}},
+		{engine: "VersionedCollapsingMergeTree", args: "sign, version", params: []string{"sign", "version"}, sortingKey: "id", orderBy: []interface{}{"id", "version"}},
 	} {
 		t.Run(tc.engine, func(t *testing.T) {
 			name := fmt.Sprintf("terraform_external_import_%d", time.Now().UnixNano())
@@ -51,10 +54,6 @@ func TestIntegrationImportExternalTables(t *testing.T) {
 			if tc.engine == "AggregatingMergeTree" {
 				comment = `{"owner":"external","retention":30}`
 			}
-			sortingKey := "(id, version)"
-			if tc.engine == "VersionedCollapsingMergeTree" {
-				sortingKey = "id"
-			}
 			sql := "CREATE TABLE " + qualifiedName + ` (
  id UInt64 COMMENT 'external id' CODEC(Delta, ZSTD(1)),
  event_time DateTime DEFAULT now(),
@@ -63,7 +62,7 @@ func TestIntegrationImportExternalTables(t *testing.T) {
  label String DEFAULT concat('a,b', toString(id)) COMMENT 'external label' TTL event_time + INTERVAL 7 DAY,
  derived UInt64 MATERIALIZED id + 1,
  readable UInt64 ALIAS id + 2
- ) ENGINE = ` + tc.engine + "(" + tc.args + ") PARTITION BY toYYYYMM(event_time) PRIMARY KEY id ORDER BY " + sortingKey + " SAMPLE BY id TTL event_time + INTERVAL 30 DAY SETTINGS index_granularity = 4096 COMMENT " + quoteString(comment)
+ ) ENGINE = ` + tc.engine + "(" + tc.args + ") PARTITION BY toYYYYMM(event_time) PRIMARY KEY id ORDER BY " + tc.sortingKey + " SAMPLE BY id TTL event_time + INTERVAL 30 DAY SETTINGS index_granularity = 4096 COMMENT " + quoteString(comment)
 			if err := conn.Exec(ctx, sql); err != nil {
 				t.Fatal(err)
 			}
@@ -112,8 +111,8 @@ func TestIntegrationImportExternalTables(t *testing.T) {
 			if columns[0].(map[string]interface{})["comment"] != "external id" || columns[4].(map[string]interface{})["comment"] != "external label" {
 				t.Fatalf("column comments = %#v", columns)
 			}
-			if got := d.Get("order_by"); !reflect.DeepEqual(got, []interface{}{"id", "version"}) {
-				t.Fatalf("sorting key = %#v", got)
+			if got := d.Get("order_by"); !reflect.DeepEqual(got, tc.orderBy) {
+				t.Fatalf("sorting key = %#v, want %#v", got, tc.orderBy)
 			}
 			if got := d.Get("primary_key"); !reflect.DeepEqual(got, []interface{}{"id"}) {
 				t.Fatalf("primary key = %#v", got)
