@@ -107,3 +107,39 @@ jobs:
       - name: Remove topology fixture
         if: always()
         run: docker rm -f clickhouse-provider-topology || true
+
+  cluster-integration:
+    name: ClickHouse Cluster lifecycle (latest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+          cache: true
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: '1.6.6'
+          terraform_wrapper: false
+      - name: Start two ClickHouse nodes and ClickHouse Keeper
+        run: docker compose -f tests/fixtures/cluster/compose.yml up -d --wait --wait-timeout 120
+      - name: Cluster lifecycle and failure paths
+        env:
+          TF_ACC: '1'
+          CLICKHOUSE_CLUSTER_TEST_ADDRS: '127.0.0.1:19002,127.0.0.1:19003'
+        run: |
+          go test -v -count=1 -timeout 8m ./pkg/provider -run '^TestAccCluster'
+          go test -v -count=1 -timeout 2m ./pkg/resources/db ./pkg/resources/table -run '^TestIntegrationCluster'
+      - name: Offline node rejects incomplete DDL
+        env:
+          CLICKHOUSE_CLUSTER_OFFLINE_TEST_ADDR: '127.0.0.1:19002'
+        run: |
+          docker compose -f tests/fixtures/cluster/compose.yml stop node2
+          go test -v -count=1 -timeout 1m ./pkg/resources/db ./pkg/resources/table -run '^TestIntegrationCluster(Database)?Unavailable$'
+      - name: Cluster logs
+        if: failure()
+        run: docker compose -f tests/fixtures/cluster/compose.yml logs --no-color
+      - name: Remove cluster fixture
+        if: always()
+        run: docker compose -f tests/fixtures/cluster/compose.yml down -v

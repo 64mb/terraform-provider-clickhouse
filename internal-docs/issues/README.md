@@ -115,7 +115,7 @@ resource "clickhouse_user" "app_user" {
 
 **Documented In:**
 - Skipped test: `TestAccResourceRole_ChangeDatabaseAndPrivileges`
-- `CLAUDE.md` - Known Limitations section
+- `AGENTS.md` - ClickHouse behavior section
 
 ### Replicated Table Engine Support
 **Component:** Table Resource
@@ -228,7 +228,7 @@ internal-docs/issues/
 - **Testing Guide**: [internal-docs/TESTING.md](../TESTING.md)
 - **Setup Guide**: [docs/guides/setup.md](../../docs/guides/setup.md)
 - **Revoke Fix**: [docs/guides/revoke-fix.md](../../docs/guides/revoke-fix.md)
-- **Architecture**: [CLAUDE.md](../../CLAUDE.md)
+- **Architecture**: [AGENTS.md](../../AGENTS.md)
 - **Main README**: [README.md](../../README.md)
 
 ## Maintenance

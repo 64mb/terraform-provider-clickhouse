@@ -218,7 +218,7 @@ func resourceTableUpdate(ctx context.Context, d *schema.ResourceData, meta inter
 
 // column changes and a sorting-key extension share one ALTER, other commands have standalone grammar
 func (s *CHTableService) executeAlterPlan(ctx context.Context, t TableResource, actions []string) error {
-	ctx = clickhouse.Context(ctx, clickhouse.WithSettings(clickhouse.Settings{"mutations_sync": 2, "alter_sync": 2}))
+	ctx = common.ClusterDDLContext(ctx, t.Cluster, clickhouse.Settings{"mutations_sync": 2, "alter_sync": 2})
 	var columns []string
 	var standalone []string
 	var removals []string

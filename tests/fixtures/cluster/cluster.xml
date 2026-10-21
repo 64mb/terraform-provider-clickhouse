@@ -1,0 +1,33 @@
+<clickhouse>
+    <listen_host>0.0.0.0</listen_host>
+    <zookeeper>
+        <node>
+            <host>keeper</host>
+            <port>9181</port>
+        </node>
+    </zookeeper>
+    <macros>
+        <cluster>test_cluster</cluster>
+        <shard from_env="CH_TEST_SHARD"/>
+        <replica>01</replica>
+    </macros>
+    <distributed_ddl>
+        <path>/clickhouse/task_queue/ddl</path>
+    </distributed_ddl>
+    <remote_servers>
+        <test_cluster>
+            <shard>
+                <replica>
+                    <host>node1</host>
+                    <port>9000</port>
+                </replica>
+            </shard>
+            <shard>
+                <replica>
+                    <host>node2</host>
+                    <port>9000</port>
+                </replica>
+            </shard>
+        </test_cluster>
+    </remote_servers>
+</clickhouse>

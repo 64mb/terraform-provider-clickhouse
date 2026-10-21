@@ -433,7 +433,7 @@ go test -p 1 -parallel 1 ./...
 
 If you encounter issues not covered here:
 
-1. Check `CLAUDE.md` for provider architecture details
+1. Check `AGENTS.md` for provider architecture details
 2. Review test implementation in `*_acceptance_test.go` files
 3. Examine service layer in `service.go` for SQL generation
 4. File an issue with:

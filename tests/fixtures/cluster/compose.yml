@@ -1,0 +1,47 @@
+name: clickhouse-provider-cluster
+services:
+  keeper:
+    image: clickhouse/clickhouse-keeper:latest
+    volumes:
+      - ./keeper.xml:/etc/clickhouse-keeper/keeper_config.xml:ro
+    healthcheck:
+      test: ["CMD", "clickhouse-keeper-client", "--host", "127.0.0.1", "--port", "9181", "--query", "ls /"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+  node1:
+    image: clickhouse/clickhouse-server:latest
+    environment:
+      CLICKHOUSE_SKIP_USER_SETUP: '1'
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: '1'
+      CH_TEST_SHARD: '01'
+    ports:
+      - "127.0.0.1:19002:9000"
+    volumes:
+      - ./cluster.xml:/etc/clickhouse-server/config.d/cluster.xml:ro
+    depends_on:
+      keeper:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+  node2:
+    image: clickhouse/clickhouse-server:latest
+    environment:
+      CLICKHOUSE_SKIP_USER_SETUP: '1'
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: '1'
+      CH_TEST_SHARD: '02'
+    ports:
+      - "127.0.0.1:19003:9000"
+    volumes:
+      - ./cluster.xml:/etc/clickhouse-server/config.d/cluster.xml:ro
+    depends_on:
+      keeper:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
+      interval: 2s
+      timeout: 5s
+      retries: 30

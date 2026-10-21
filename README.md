@@ -1,208 +1,177 @@
-# Terraform Provider: Clickhouse (Terraform Plugin SDK)
+# ClickHouse Provider
 
-Manage ClickHouse databases, tables, roles and users with Terraform or OpenTofu. This fork is maintained at [64mb/terraform-provider-clickhouse](https://github.com/64mb/terraform-provider-clickhouse).
+Manage ClickHouse databases, tables, roles and users with **OpenTofu or Terraform**.
+Maintained by [64mb](https://github.com/64mb/terraform-provider-clickhouse).
 
-Tables support complex types, existing-table import, supported ALTER operations and an explicit offline rebuild mode with retained originals. See the [table resource guide](docs/resources/table.md) for the exact compatibility and recovery contracts and [publishing guide](internal-docs/publishing.md) for signed releases and OpenTofu registration.
+## 🚀 Install & use
 
-## Local verification
+Add the provider to your configuration. The explicit registry address selects the
+[OpenTofu Registry](https://registry.opentofu.org/64mb/clickhouse), including when using Terraform.
 
-Use a disposable ClickHouse server, never a production connection:
+```hcl
+terraform {
+  required_providers {
+    clickhouse = {
+      source  = "registry.opentofu.org/64mb/clickhouse"
+      version = "~> 1.0"
+    }
+  }
+}
+
+provider "clickhouse" {}
+
+resource "clickhouse_db" "analytics" {
+  name = "analytics"
+}
+
+resource "clickhouse_table" "events" {
+  database = clickhouse_db.analytics.name
+  name     = "events"
+  engine   = "MergeTree"
+  order_by = ["event_time", "event_type"]
+
+  column {
+    name = "event_time"
+    type = "DateTime"
+  }
+
+  column {
+    name = "event_type"
+    type = "LowCardinality(String)"
+  }
+}
+```
+
+Set connection details in your shell, then initialize and apply:
+
+```sh
+export TF_CLICKHOUSE_HOST="127.0.0.1"
+export TF_CLICKHOUSE_PORT="9000"
+export TF_CLICKHOUSE_USERNAME="default"
+export TF_CLICKHOUSE_PASSWORD="your-password"
+
+tofu init
+tofu plan
+tofu apply
+```
+
+Use `terraform` in place of `tofu` for the same workflow. Connect through the
+**native TCP protocol**, usually port `9000`. For TLS, set `secure = true` in the
+provider block and use your server's secure native port, commonly `9440`.
+Connection settings can also be supplied directly in the
+[provider configuration](docs/index.md). If you use provider mirrors, allow this
+provider to install directly from `registry.opentofu.org`.
+
+Provider configuration is lazy: you can plan new objects before the ClickHouse
+endpoint exists, including when its address comes from another resource.
+Refresh, import and data-source reads require a reachable server. See
+[creating the cluster and its objects together](docs/index.md#creating-the-cluster-and-its-objects-together).
+
+## 🧩 What you can manage
+
+| Resource or data source | Purpose | Reference |
+| --- | --- | --- |
+| `clickhouse_db` | Create databases and manage comments | [Database](docs/resources/db.md) |
+| `clickhouse_table` | Manage table definitions, import existing tables and apply supported ALTER operations | [Table](docs/resources/table.md) |
+| `clickhouse_role` | Grant database-level privileges to a role | [Role](docs/resources/role.md) |
+| `clickhouse_user` | Create users and assign roles | [User](docs/resources/user.md) |
+| `clickhouse_dbs` · data source | List databases and their metadata | [Databases](docs/data-sources/dbs.md) |
+
+For example, grant read access to the database created above:
+
+```hcl
+variable "reader_password" {
+  type      = string
+  sensitive = true
+}
+
+resource "clickhouse_role" "reader" {
+  name       = "analytics_reader"
+  database   = clickhouse_db.analytics.name
+  privileges = ["SELECT"]
+}
+
+resource "clickhouse_user" "reader" {
+  name     = "analytics_reader"
+  password = var.reader_password
+  roles    = [clickhouse_role.reader.name]
+}
+
+data "clickhouse_dbs" "all" {}
+```
+
+User passwords are stored in state. Protect your state backend and supply the
+password through your normal secrets workflow.
+
+### Existing tables & schema changes
+
+Import an existing table with its database and table name, optionally prefixed
+by an explicit cluster target:
+
+```sh
+tofu import clickhouse_table.events 'analytics:events'
+tofu import clickhouse_table.events 'my_cluster:analytics:events'
+```
+
+Use one import command matching your deployment, then align the resource
+configuration with the imported state before applying changes.
+
+Supported ALTER operations update tables in place and preserve their UUIDs.
+Explicit column drops remove their data. Unsupported changes return an error
+without falling back to DROP/CREATE. An explicit offline
+rebuild is available for a limited set of standalone MergeTree migrations and
+retains the original table. Read the [table guide](docs/resources/table.md) for
+supported types, ALTER rules, import and the maintenance/recovery contract.
+
+### Clustered deployments
+
+Set a default cluster for databases and tables, or override it with their
+resource-level `cluster` argument:
+
+```hcl
+provider "clickhouse" {
+  default_cluster = "my_cluster"
+}
+```
+
+Replace the earlier provider block with this one. Roles, users and grants run
+on the connected node without `ON CLUSTER`. Database and table DDL waits for
+all target hosts and surfaces remote errors. Distributed DDL is not atomic:
+a timeout can leave partial changes or queued work that executes later.
+See the [cluster DDL guide](docs/resources/table.md#cluster-ddl-completion) and
+[table examples](examples/resources/clickhouse_table).
+
+## 🛠 Contributing & development
+
+Use **Go 1.25+** and [Task](https://taskfile.dev). Start with the local checks:
+
+```sh
+task build
+go vet ./...
+task test
+```
+
+For live table tests, start a disposable ClickHouse instance:
 
 ```sh
 docker run -d --name clickhouse-provider-test -p 127.0.0.1:19000:9000 \
   -e CLICKHOUSE_SKIP_USER_SETUP=1 clickhouse/clickhouse-server:25.3
-go test -race -count=1 -skip '^(TestAcc|TestIntegration)' ./...
-CLICKHOUSE_TEST_ADDR=127.0.0.1:19000 go test ./pkg/resources/table -run '^TestIntegration' -v
-TF_ACC=1 go test ./pkg/provider ./pkg/resources/table -run '^TestAcc(Provider|Table)' -v
-# remove the disposable fixture after testing
+
+task test-table-integration
+task test-table-lifecycle
+
 docker rm -f clickhouse-provider-test
 ```
 
-The table lifecycle tests use only `127.0.0.1:19000`. Existing legacy acceptance tests use the `TF_CLICKHOUSE_*` environment variables. On every PR, CI runs the integration, bootstrap and lifecycle tests against ClickHouse `25.3`, `25.8`, `26.3` and `26.8` with both Terraform and OpenTofu. The Replicated/Distributed fixture uses the same ClickHouse version with embedded Keeper. Image tags track the latest patch in each series. To run against OpenTofu locally, install `tofu`, set `TF_ACC_TERRAFORM_PATH` to its absolute path, and run the same SDK acceptance tests.
+Wait for the server to accept native connections before running the tests.
+Lifecycle tests need Terraform on `PATH`. To use OpenTofu, set
+`TF_ACC_TERRAFORM_PATH` to the absolute path of `tofu`.
 
-## Requirements
+CI tests ClickHouse **25.3, 25.8, 26.3 and 26.8** with both CLIs. A separate
+cluster job tests two ClickHouse nodes and a dedicated Keeper, using `latest`
+images. Follow the [fixture guide](tests/fixtures/README.md) for topology tests,
+cluster failure cases and cleanup.
 
--	[Terraform](https://www.terraform.io/downloads.html) >= 0.13.x
--	[Go](https://golang.org/doc/install) >= 1.25 for development and CI
-
-## Building The Provider
-
-1. Clone the repository
-1. Enter the repository directory
-1. Build the provider using the Go `install` command: 
-```sh
-$ go install
-```
-
-## Adding Dependencies
-
-This provider uses [Go modules](https://github.com/golang/go/wiki/Modules).
-Please see the Go documentation for the most up to date information about using Go modules.
-
-To add a new dependency `github.com/author/dependency` to your Terraform provider:
-
-```bash
-go get github.com/author/dependency
-go mod tidy
-```
-
-Then commit the changes to `go.mod` and `go.sum`.
-
-## Using the provider
-
-Since v1.0.2, configuring the provider does not connect to ClickHouse. You can plan new objects before creating the cluster, including when its endpoint is unknown until apply. Reference the cluster output in `host` and declare dependencies on separately created admin credentials, networking or databases where needed. Connections open on the first resource or data-source operation. Existing-resource refresh and data-source reads still require an accessible server during plan. See the [provider guide](docs/index.md#creating-the-cluster-and-its-objects-together).
-
-
-Definining provider. The port should be the Clickhouse native protocol port (9000 by default, and 9440 for Clickhouse Cloud)
-
-```hcl
-provider "clickhouse" {
-  port           = 9000           # Clickhouse native protocol port
-  host           = "127.0.0.1"
-  username       = "default"
-  password       = ""
-}
-```
-
-In order to definte url, username and password in a safety way it is possible to define them using env vars:
-
-```config
-TF_CLICKHOUSE_USERNAME=default
-TF_CLICKHOUSE_PASSWORD=""
-TF_CLICKHOUSE_HOST="127.0.0.1"
-TF_CLICKHOUSE_PORT=9000
-```
-
-```hcl
-resource "clickhouse_db" "test_db_clusterd" {
-  name = "database_test_clustered"
-  comment = "This is a test database"
-}
-```
-
-### Clustered server
-
-Configuring provider
-
-```hcl
-provider "clickhouse" {
-  port           = 9000
-  host           = "127.0.0.1"
-  username       = "default"
-  password       = ""
-  default_cluster ="cluster"
-}
-```
-
-Creating a Database
-
-```hcl
-resource "clickhouse_db" "test_db_clusterd" {
-  name = "database_test_clustered"
-  comment = "This is a test database"
-  cluster = "cluster"
-}
-```
-
-### Clustered server using Altinity Clickhouse Operator
-
-I is possible to use macros defined for cluster, databases, installation names in Altinity operator when creating resources.
-
-```hcl
-provider "clickhouse" {
-  port           = 9000
-  host           = "127.0.0.1"
-  username       = "default"
-  password       = ""
-  default_cluster ="'{cluster}'"
-}
-```
-
-```hcl
-resource "clickhouse_db" "test_db_cluster" {
-  name = "database_test_clustered"
-  comment = "This is a test database"
-  cluster = "'{cluster}'"
-}
-```
-
-Creating tables
-
-```hcl
-resource "clickhouse_table" "replicated_table" {
-  database      = clickhouse_db.test_db_clustered.name
-  name    = "replicated_table"
-  cluster       = clickhouse_db.test_db_clustered.cluster
-  engine        = "ReplicatedMergeTree"
-  engine_params = ["'/clickhouse/{installation}/clickhouse_db.test_db_clustered.cluster/tables/{shard}/{database}/{table}'", "'{replica}'"]
-  order_by      = ["event_date", "event_type"]
-  columns {
-    name = "event_date"
-    type = "Date"
-  }
-  columns {
-    name = "event_type"
-    type = "Int32"
-  }
-  columns {
-    name = "article_id"
-    type = "Int32"
-  }
-  columns {
-    name = "title"
-    type = "String"
-  }
-  partition_by {
-    by = "event_type"
-  }
-  partition_by {
-    by                 = "event_date"
-    partition_function = "toYYYYMM"
-  }
-}
-
-
-resource "clickhouse_table" "distributed_table" {
-  database      = clickhouse_db.test_db_clustered.name
-  name    = "distributed_table"
-  cluster       = clickhouse_db.test_db_clustered.cluster
-  engine        = "Distributed"
-  engine_params = [clickhouse_db.test_db_clustered.cluster, clickhouse_db.test_db_clustered.name, clickhouse_table.replicated_table.name, "rand()"]
-}
-```
-
-Creating roles
-
-```hcl
-resource "clickhouse_role" "my_database_rw" {
-  name       = "my_database_rw"
-  database   = clickhouse_db.test_db_cluster.name
-  privileges = ["SELECT", "INSERT"]
-}
-```
-
-Creating users
-
-```hcl
-resource "clickhouse_user" "my_database_rw_user" {
-  name     = "my_database_rw_user"
-  password = "awesome_user_password"
-  roles    = [clickhouse_role.my_database_rw.name]
-}
-```
-
-## Developing the Provider
-
-If you wish to work on the provider, you'll first need [Go](http://www.golang.org) installed on your machine (see [Requirements](#requirements) above).
-
-To compile the provider, run `go install`. This will build the provider and put the provider binary in the `$GOPATH/bin` directory.
-
-To generate or update documentation, run `go generate`.
-
-In order to run the full suite of Acceptance tests, run `make testacc`.
-
-_Note:_ Acceptance tests create real resources, and often cost money to run.
-
-```sh
-$ make testacc
-```
+Keep changes focused, add regression coverage for fixes, and run `task doc` when
+changing generated schemas. See the [publishing guide](internal-docs/publishing.md)
+for release verification and registry publishing.

@@ -26,6 +26,7 @@ func ResourceDb() *schema.Resource {
 				Description: "Cluster name, not mandatory but should be provided if creating a db in a clustered server",
 				Type:        schema.TypeString,
 				Optional:    true,
+				Computed:    true,
 				ForceNew:    true,
 			},
 			"name": &schema.Schema{
@@ -103,6 +104,9 @@ func resourceDbRead(ctx context.Context, d *schema.ResourceData, meta any) diag.
 		})
 		comment, cluster = storedComment, defaultCluster
 	}
+	if configuredCluster := d.Get("cluster").(string); configuredCluster != "" {
+		cluster = configuredCluster
+	}
 
 	err = d.Set("name", name)
 	if err != nil {
@@ -163,7 +167,6 @@ func resourceDbRead(ctx context.Context, d *schema.ResourceData, meta any) diag.
 
 func resourceDbCreate(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	client := meta.(*common.ApiClient)
-	var diags diag.Diagnostics
 	conn := *client.ClickhouseConnection
 
 	cluster, _ := d.Get("cluster").(string)
@@ -176,14 +179,16 @@ func resourceDbCreate(ctx context.Context, d *schema.ResourceData, meta any) dia
 
 	query := fmt.Sprintf("CREATE DATABASE %v %v COMMENT '%v'", databaseName, clusterStatement, common.GetComment(comment, cluster))
 
-	err := conn.Exec(ctx, query)
+	err := conn.Exec(common.ClusterDDLContext(ctx, cluster, nil), query)
 	if err != nil {
 		return diag.FromErr(err)
 	}
 
 	d.SetId(cluster + ":" + databaseName)
-
-	return diags
+	if err := d.Set("cluster", cluster); err != nil {
+		return diag.FromErr(err)
+	}
+	return resourceDbRead(ctx, d, meta)
 }
 
 func resourceDbDelete(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
@@ -205,7 +210,11 @@ func resourceDbDelete(ctx context.Context, d *schema.ResourceData, meta any) dia
 
 	chTableService := resourcetable.CHTableService{CHConnection: conn}
 	chDBService := CHDBService{CHConnection: conn, CHTableService: &chTableService}
-	dbResources, err := chDBService.GetDBResources(ctx, databaseName)
+	cluster, _ := d.Get("cluster").(string)
+	if cluster == "" {
+		cluster = client.DefaultCluster
+	}
+	dbResources, err := chDBService.GetDBResources(ctx, databaseName, cluster)
 
 	if err != nil {
 		return diag.FromErr(fmt.Errorf("resource db delete: %v", err))
@@ -223,15 +232,11 @@ func resourceDbDelete(ctx context.Context, d *schema.ResourceData, meta any) dia
 		return diags
 	}
 
-	cluster, _ := d.Get("cluster").(string)
-	if cluster == "" {
-		cluster = client.DefaultCluster
-	}
 	clusterStatement := common.GetClusterStatement(cluster)
 
 	query := fmt.Sprintf("DROP DATABASE %v %v SYNC", databaseName, clusterStatement)
 
-	err = (*conn).Exec(ctx, query)
+	err = (*conn).Exec(common.ClusterDDLContext(ctx, cluster, nil), query)
 	if err != nil {
 		return diag.FromErr(err)
 	}
