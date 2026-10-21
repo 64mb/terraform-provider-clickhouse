@@ -14,19 +14,26 @@ func GetComment(comment string, cluster string) string {
 }
 
 func UnmarshalComment(storedComment string) (comment string, cluster string, err error) {
-	storedComment = strings.Replace(storedComment, "\\'", "'", -1)
-
-	byteStreamComment := []byte(storedComment)
-
-	var dat map[string]interface{}
-
-	if err := json.Unmarshal(byteStreamComment, &dat); err != nil {
+	var metadata map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(storedComment), &metadata); err != nil {
+		legacy := strings.ReplaceAll(storedComment, `\'`, `'`)
+		if legacyErr := json.Unmarshal([]byte(legacy), &metadata); legacyErr != nil {
+			return "", "", err
+		}
+	}
+	if metadata["comment"] == nil || metadata["cluster"] == nil {
+		return "", "", fmt.Errorf("comment is not provider metadata")
+	}
+	if string(metadata["comment"]) == "null" || string(metadata["cluster"]) == "null" {
+		return "", "", fmt.Errorf("provider metadata fields must be strings")
+	}
+	if err := json.Unmarshal(metadata["comment"], &comment); err != nil {
 		return "", "", err
 	}
-	comment = dat["comment"].(string)
-	cluster = dat["cluster"].(string)
-
-	return comment, cluster, err
+	if err := json.Unmarshal(metadata["cluster"], &cluster); err != nil {
+		return "", "", err
+	}
+	return comment, cluster, nil
 }
 
 func GetClusterStatement(cluster string) (clusterStatement string) {

@@ -76,7 +76,7 @@ jobs:
       - name: Table roundtrip, ALTER and maintenance rebuild
         env:
           CLICKHOUSE_TEST_ADDR: '127.0.0.1:19000'
-        run: go test -v -count=1 -timeout 5m ./pkg/resources/table -run '^TestIntegration'
+        run: go test -v -count=1 -timeout 5m ./pkg/resources/table ./pkg/resources/db -run '^TestIntegration'
       - name: Terraform create, import, no-op refresh, update and destroy
         env:
           TF_ACC: '1'
@@ -84,7 +84,7 @@ jobs:
           TF_CLICKHOUSE_PORT: '19000'
           TF_CLICKHOUSE_USERNAME: default
           TF_CLICKHOUSE_PASSWORD: ''
-        run: go test -v -count=1 -timeout 5m ./pkg/provider ./pkg/resources/table -run '^TestAcc(Provider|Table)'
+        run: go test -v -count=1 -timeout 5m ./pkg/provider ./pkg/resources/table ./pkg/resources/db -run '^TestAcc(Provider|Table|Database)'
       - name: Start isolated Keeper and topology fixture
         run: |
           docker run -d --name clickhouse-provider-topology \
@@ -129,7 +129,7 @@ jobs:
           TF_ACC: '1'
           CLICKHOUSE_CLUSTER_TEST_ADDRS: '127.0.0.1:19002,127.0.0.1:19003'
         run: |
-          go test -v -count=1 -timeout 8m ./pkg/provider -run '^TestAccCluster'
+          go test -v -count=1 -timeout 8m ./pkg/provider ./pkg/resources/db -run '^TestAccCluster'
           go test -v -count=1 -timeout 2m ./pkg/resources/db ./pkg/resources/table -run '^TestIntegrationCluster'
       - name: Offline node rejects incomplete DDL
         env:
