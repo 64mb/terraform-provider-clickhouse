@@ -5,17 +5,22 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
-	"github.com/ClickHouse/clickhouse-go/v2"
-	"github.com/64mb/terraform-provider-clickhouse/pkg/common" 
+	"net"
+	"os"
+	"strconv"
+	"strings"
+
+	"github.com/64mb/terraform-provider-clickhouse/pkg/common"
 	"github.com/64mb/terraform-provider-clickhouse/pkg/datasources"
 	"github.com/64mb/terraform-provider-clickhouse/pkg/resources/db"
 	"github.com/64mb/terraform-provider-clickhouse/pkg/resources/role"
 	"github.com/64mb/terraform-provider-clickhouse/pkg/resources/table"
 	"github.com/64mb/terraform-provider-clickhouse/pkg/resources/user"
+	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/validation"
 	"github.com/joho/godotenv"
-	"os"
 )
 
 func init() {
@@ -65,18 +70,20 @@ func New(version string) func() *schema.Provider {
 					},
 				},
 				"host": {
-					Description: "Clickhouse server url",
-					Type:        schema.TypeString,
-					Required:    true,
-					Sensitive:   true,
+					Description:  "Clickhouse server url",
+					Type:         schema.TypeString,
+					Required:     true,
+					Sensitive:    true,
+					ValidateFunc: validation.StringIsNotWhiteSpace,
 					DefaultFunc: func() (any, error) {
 						return getEnvVar("TF_CLICKHOUSE_HOST")
 					},
 				},
 				"port": {
-					Description: "Clickhouse server native protocol port (TCP)",
-					Type:        schema.TypeInt,
-					Required:    true,
+					Description:  "Clickhouse server native protocol port (TCP)",
+					Type:         schema.TypeInt,
+					Required:     true,
+					ValidateFunc: validation.IntBetween(1, 65535),
 					DefaultFunc: func() (any, error) {
 						return getEnvVar("TF_CLICKHOUSE_PORT")
 					},
@@ -123,15 +130,22 @@ func configure() func(context.Context, *schema.ResourceData) (any, diag.Diagnost
 		password := d.Get("password").(string)
 		secure := d.Get("secure").(bool)
 
-		var TLSConfig *tls.Config
-		// To use TLS it's necessary to set the TLSConfig field as not nil
+		unknown := unknownConfiguration(d)
+		if !containsAttribute(unknown, "host") && strings.TrimSpace(host) == "" {
+			return nil, diag.Errorf("clickhouse host must not be empty")
+		}
+		if !containsAttribute(unknown, "port") && (port < 1 || port > 65535) {
+			return nil, diag.Errorf("clickhouse port must be between 1 and 65535")
+		}
+
+		var tlsConfig *tls.Config
 		if secure {
-			TLSConfig = &tls.Config{
+			tlsConfig = &tls.Config{
 				InsecureSkipVerify: false,
 			}
 		}
-		conn, err := clickhouse.Open(&clickhouse.Options{
-			Addr: []string{fmt.Sprintf("%s:%d", host, port)},
+		options := &clickhouse.Options{
+			Addr: []string{net.JoinHostPort(host, strconv.Itoa(port))},
 			Auth: clickhouse.Auth{
 				Username: username,
 				Password: password,
@@ -139,19 +153,41 @@ func configure() func(context.Context, *schema.ResourceData) (any, diag.Diagnost
 			Settings: clickhouse.Settings{
 				"max_execution_time": 30,
 			},
-			TLS: TLSConfig,
-		})
-
-		var diags diag.Diagnostics
+			TLS: tlsConfig,
+		}
+		if len(unknown) != 0 {
+			// unknown configuration must never fall back to driver defaults during a read
+			options.DialContext = func(context.Context, string) (net.Conn, error) {
+				return nil, fmt.Errorf("clickhouse provider configuration is not yet known: %s, make the endpoint and credentials available before reading existing resources or data sources", strings.Join(unknown, ", "))
+			}
+		}
+		// [clickhouse.Open] creates a pool without dialing, operations connect when needed
+		conn, err := clickhouse.Open(options)
 
 		if err != nil {
 			return nil, diag.FromErr(fmt.Errorf("error connecting to clickhouse: %v", err))
 		}
 
-		if err := conn.Ping(ctx); err != nil {
-			return nil, diag.FromErr(fmt.Errorf("ping clickhouse database: %w", err))
-		}
-
-		return &common.ApiClient{ClickhouseConnection: &conn, DefaultCluster: defaultCluster}, diags
+		return &common.ApiClient{ClickhouseConnection: &conn, DefaultCluster: defaultCluster}, nil
 	}
+}
+
+func unknownConfiguration(d *schema.ResourceData) []string {
+	var unknown []string
+	// this SDK does not retain provider raw config, [GetOkExists] preserves unknown primitive values
+	for _, name := range []string{"host", "port", "secure"} {
+		if _, known := d.GetOkExists(name); !known {
+			unknown = append(unknown, name)
+		}
+	}
+	return unknown
+}
+
+func containsAttribute(attributes []string, name string) bool {
+	for _, attribute := range attributes {
+		if attribute == name {
+			return true
+		}
+	}
+	return false
 }

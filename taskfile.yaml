@@ -71,7 +71,7 @@ tasks:
       TF_CLICKHOUSE_USERNAME: default
       TF_CLICKHOUSE_PASSWORD: ''
     cmds:
-      - go test -v -count=1 ./pkg/resources/table -run '^TestAccTable' -timeout=5m
+      - go test -v -count=1 ./pkg/provider ./pkg/resources/table -run '^TestAcc(Provider|Table)' -timeout=5m
 
   release-check:
     desc: Validate the signed registry release configuration without publishing

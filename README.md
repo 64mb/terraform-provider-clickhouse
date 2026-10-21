@@ -13,7 +13,7 @@ docker run -d --name clickhouse-provider-test -p 127.0.0.1:19000:9000 \
   -e CLICKHOUSE_SKIP_USER_SETUP=1 clickhouse/clickhouse-server:25.3
 go test -race -count=1 -skip '^(TestAcc|TestIntegration)' ./...
 CLICKHOUSE_TEST_ADDR=127.0.0.1:19000 go test ./pkg/resources/table -run '^TestIntegration' -v
-TF_ACC=1 go test ./pkg/resources/table -run '^TestAccTable' -v
+TF_ACC=1 go test ./pkg/provider ./pkg/resources/table -run '^TestAcc(Provider|Table)' -v
 # remove the disposable fixture after testing
 docker rm -f clickhouse-provider-test
 ```
@@ -49,6 +49,8 @@ go mod tidy
 Then commit the changes to `go.mod` and `go.sum`.
 
 ## Using the provider
+
+Since v1.0.2, configuring the provider does not connect to ClickHouse. You can plan new objects before creating the cluster, including when its endpoint is unknown until apply. Reference the cluster output in `host` and declare dependencies on separately created admin credentials, networking or databases where needed. Connections open on the first resource or data-source operation. Existing-resource refresh and data-source reads still require an accessible server during plan. See the [provider guide](docs/index.md#creating-the-cluster-and-its-objects-together).
 
 
 Definining provider. The port should be the Clickhouse native protocol port (9000 by default, and 9440 for Clickhouse Cloud)
