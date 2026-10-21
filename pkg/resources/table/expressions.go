@@ -3,6 +3,7 @@ package resourcetable
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
@@ -24,14 +25,29 @@ func equalServerExpressions(ctx context.Context, conn *driver.Conn, a, b string,
 	err := (*conn).QueryRow(ctx, "SELECT formatQuerySingleLine(?) = formatQuerySingleLine(?)", prefix+a, prefix+b).Scan(&equal)
 	return err == nil && equal == 1
 }
-func preserveConfiguredExpressions(ctx context.Context, conn *driver.Conn, d *schema.ResourceData, r *TableResource) {
+func replicationPathEquivalent(engine string, enabled bool, configured, actual, database, table string) bool {
+	return enabled && strings.HasPrefix(engine, "Replicated") && mergeTreeEngine(engine) && (equivalentReplicationPath(configured, actual, database, table) || equivalentReplicationPath(actual, configured, database, table))
+}
+
+func replicationPathMacrosEnabled(ctx context.Context, conn *driver.Conn, engine string) bool {
+	if !strings.HasPrefix(engine, "Replicated") || !mergeTreeEngine(engine) {
+		return false
+	}
+	// any explicit special macro disables built-in materialization in ClickHouse
+	var overrides uint64
+	err := (*conn).QueryRow(ctx, "SELECT count() FROM system.macros WHERE macro IN ('database', 'table', 'uuid')").Scan(&overrides)
+	return err == nil && overrides == 0
+}
+
+func preserveConfiguredExpressions(ctx context.Context, conn *driver.Conn, d *schema.ResourceData, r *TableResource, macrosEnabled bool) {
 	for key, dst := range map[string]*[]string{"engine_params": &r.EngineParams, "order_by": &r.OrderBy, "primary_key": &r.PrimaryKey} {
 		configured := d.Get(key).([]interface{})
 		if len(configured) != len(*dst) {
 			continue
 		}
 		for i, x := range configured {
-			if equalServerExpressions(ctx, conn, x.(string), (*dst)[i], false) {
+			pathEquivalent := key == "engine_params" && i == 0 && d.Get("engine").(string) == r.Engine && replicationPathEquivalent(r.Engine, macrosEnabled, x.(string), (*dst)[i], r.Database, r.Name)
+			if pathEquivalent || equalServerExpressions(ctx, conn, x.(string), (*dst)[i], false) {
 				(*dst)[i] = x.(string)
 			}
 		}

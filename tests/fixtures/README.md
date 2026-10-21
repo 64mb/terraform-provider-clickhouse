@@ -64,3 +64,9 @@ version or CLI matrix. The existing standalone version matrix remains separate.
 Tests use unique object names. The offline case leaves a queued CREATE that may
 execute after the node restarts, so remove the fixture with `down -v` after testing.
 This is a distributed DDL test, not a replicated-data failover or durability test.
+
+`TestAccClusterReplicationMacros` also checks `{database}` and `{table}` path
+materialization for ReplicatedMergeTree and ReplicatedReplacingMergeTree,
+unchanged plans after creation and import, and ALTER preserving data and UUIDs
+on both nodes. Real replication path changes must remain visible and rejected
+without modifying either table.

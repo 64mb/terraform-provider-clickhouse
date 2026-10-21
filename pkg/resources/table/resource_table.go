@@ -24,6 +24,12 @@ func expressionList() *schema.Schema {
 func equivalentSQL(k, old, new string, d *schema.ResourceData) bool {
 	return normalizeSQL(old) == normalizeSQL(new)
 }
+func equivalentEngineParam(k, old, next string, d *schema.ResourceData) bool {
+	if equivalentSQL(k, old, next, d) {
+		return true
+	}
+	return k == "engine_params.0" && replicationPathEquivalent(d.Get("engine").(string), d.Get("replication_path_macros_enabled").(bool), next, old, d.Get("database").(string), d.Get("name").(string))
+}
 func validateFragment(v interface{}, p cty.Path) diag.Diagnostics {
 	return diag.FromErr(validateSQLFragment(v.(string)))
 }
@@ -35,14 +41,15 @@ func ResourceTable() *schema.Resource {
 		Importer:      &schema.ResourceImporter{StateContext: importTable},
 		CustomizeDiff: validateTableDiff,
 		Schema: map[string]*schema.Schema{
-			"database":      {Type: schema.TypeString, Required: true, Description: "Database name"},
-			"name":          {Type: schema.TypeString, Required: true, Description: "Table name"},
-			"cluster":       {Type: schema.TypeString, Optional: true, Computed: true, Description: "Explicit cluster override, otherwise provider default_cluster is used on creation"},
-			"comment":       {Type: schema.TypeString, Optional: true, Description: "Table comment"},
-			"engine":        {Type: schema.TypeString, Required: true, ValidateDiagFunc: ValidateOnClusterEngine, Description: "MergeTree family or Distributed"},
-			"engine_params": {Type: schema.TypeList, Optional: true, DiffSuppressFunc: equivalentSQL, Elem: &schema.Schema{Type: schema.TypeString}, Description: "Engine arguments as SQL expressions"},
-			"order_by":      expressionList(),
-			"primary_key":   primaryKeySchema(),
+			"database":                        {Type: schema.TypeString, Required: true, Description: "Database name"},
+			"name":                            {Type: schema.TypeString, Required: true, Description: "Table name"},
+			"cluster":                         {Type: schema.TypeString, Optional: true, Computed: true, Description: "Explicit cluster override, otherwise provider default_cluster is used on creation"},
+			"comment":                         {Type: schema.TypeString, Optional: true, Description: "Table comment"},
+			"engine":                          {Type: schema.TypeString, Required: true, ValidateDiagFunc: ValidateOnClusterEngine, Description: "MergeTree family or Distributed"},
+			"engine_params":                   {Type: schema.TypeList, Optional: true, DiffSuppressFunc: equivalentEngineParam, Elem: &schema.Schema{Type: schema.TypeString}, Description: "Engine arguments as SQL expressions"},
+			"replication_path_macros_enabled": {Type: schema.TypeBool, Computed: true, Description: "Whether server metadata confirms built-in database and table replication path expansion is enabled"},
+			"order_by":                        expressionList(),
+			"primary_key":                     primaryKeySchema(),
 			"partition_by": {Type: schema.TypeList, Optional: true, Elem: &schema.Resource{Schema: map[string]*schema.Schema{
 				"by":                 {Type: schema.TypeString, Required: true, DiffSuppressFunc: equivalentSQL, ValidateDiagFunc: validateFragment},
 				"partition_function": {Type: schema.TypeString, Optional: true, ValidateDiagFunc: ValidatePartitionBy},
@@ -148,7 +155,11 @@ func resourceTableRead(ctx context.Context, d *schema.ResourceData, meta interfa
 		r.Cluster = cluster
 	}
 	omitImplicitDefaults(tableFromData(d), r)
-	preserveConfiguredExpressions(ctx, client.ClickhouseConnection, d, r)
+	macrosEnabled := replicationPathMacrosEnabled(ctx, client.ClickhouseConnection, r.Engine)
+	if err := d.Set("replication_path_macros_enabled", macrosEnabled); err != nil {
+		return diag.FromErr(err)
+	}
+	preserveConfiguredExpressions(ctx, client.ClickhouseConnection, d, r, macrosEnabled)
 	r.Columns = restoreNestedColumns(d.Get("column").([]interface{}), r.Columns)
 	partition := []interface{}{}
 	for _, p := range r.PartitionBy {

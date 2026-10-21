@@ -43,6 +43,7 @@ Computed:
 - `id`: `cluster:database:table`
 - `uuid`: ClickHouse object UUID
 - `create_table_query`: complete server DDL for import inspection, including unmanaged metadata
+- `replication_path_macros_enabled`: whether server metadata confirms built-in `{database}` and `{table}` expansion is enabled for a replicated engine
 - `rebuild_backup_table`: retained original table after a successful rebuild
 
 Names and comments are escaped. Expressions are deliberately SQL expressions, not HCL identifiers. Statements, SQL comments and unbalanced syntax are rejected. Type declarations use a separate recursive parser, never raw SQL.
@@ -52,6 +53,30 @@ Names and comments are escaped. Expressions are deliberately SQL expressions, no
 Types include numeric types, `Bool`, `String`, `UUID`, `IPv4`, `IPv6`, `FixedString`, `Date`, `Date32`, `DateTime` with optional timezone, `DateTime64` with precision and optional timezone, `Decimal` and fixed-width Decimal variants, `Enum8/16`, `LowCardinality`, `Nullable`, `Array`, named or unnamed `Tuple`, `Map`, `Nested`, `AggregateFunction`, `SimpleAggregateFunction`, `Nothing` and basic `JSON`. Composite types may be nested. Server settings and ClickHouse version still determine which combinations are valid.
 
 Whitespace, Decimal aliases, and default DateTime64 precision are normalized. Server formatting reconciles equivalent expressions such as `INTERVAL 30 DAY` and `toIntervalDay(30)` during refresh. String literals retain their contents. Configured `Nested` blocks are preserved when their expanded physical columns match; imports expose physical dotted Array columns, avoiding invented grouping. Grouped `Nested` assumes the ClickHouse default `flatten_nested = 1`; nested default expressions are rejected.
+
+### Replication path macros
+
+For `Replicated*MergeTree` engines, the first `engine_params` argument may contain
+`{database}` and `{table}` in a SQL string literal:
+
+```hcl
+engine_params = ["'/clickhouse/tables/{shard}/{database}/{table}'", "'{replica}'"]
+```
+
+ClickHouse materializes these two placeholders in the stored definition. Refresh,
+import planning and ordinary ALTER recognize a matching expanded path without
+changing the table or requiring a maintenance rebuild. Real path changes and
+changes to the remaining engine arguments still require an external migration
+for replicated tables. `{shard}`, `{replica}`, `{uuid}` and custom macros remain
+under ClickHouse's control and are not expanded by the provider.
+
+This comparison requires `SELECT` on `system.macros` to confirm that builtin
+expansion is enabled. An explicit server macro named `database`, `table` or `uuid`
+disables builtin materialization. If metadata is inaccessible, the provider keeps
+the ordinary exact-path comparison; use the explicit path from
+`create_table_query` in your configuration. Other table operations do not acquire
+a new permission requirement. The comparison accepts complete single-quoted SQL
+literals, not expressions such as `concat(...)`.
 
 ## ALTER behavior
 
