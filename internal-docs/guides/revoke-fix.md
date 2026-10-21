@@ -237,7 +237,7 @@ terraform apply
 ### Documentation
 - `internal-docs/TESTING.md` - Comprehensive testing guide
 - `docs/guides/setup.md` - Setup instructions
-- `CLAUDE.md` - Architecture and privilege system details
+- `AGENTS.md` - Architecture and privilege system details
 
 ## Best Practices
 

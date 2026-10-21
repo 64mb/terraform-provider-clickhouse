@@ -540,7 +540,7 @@ If issues persist:
 1. Check ClickHouse logs: `docker logs clickhouse-server`
 2. Verify ClickHouse version: `SELECT version()` (provider tested with latest)
 3. Review provider documentation: `docs/index.md`
-4. Check CLAUDE.md for architecture details
+4. Check AGENTS.md for architecture details
 5. File an issue with:
    - Docker version
    - ClickHouse version

@@ -109,7 +109,7 @@ jobs:
         run: docker rm -f clickhouse-provider-topology || true
 
   cluster-integration:
-    name: ON CLUSTER lifecycle (latest)
+    name: ClickHouse Cluster lifecycle (latest)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

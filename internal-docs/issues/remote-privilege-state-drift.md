@@ -342,7 +342,7 @@ terraform {
 - **Testing Guide**: `internal-docs/TESTING.md` - Full testing documentation
 - **Revoke Fix Guide**: `docs/guides/revoke-fix.md` - Detailed fix explanation
 - **Setup Guide**: `docs/guides/setup.md` - ClickHouse setup instructions
-- **Architecture**: `CLAUDE.md` - Provider architecture and privilege system
+- **Architecture**: `AGENTS.md` - Provider architecture and privilege system
 
 ## Prevention
 
@@ -404,4 +404,4 @@ For questions or issues related to this fix:
 
 - GitHub Issues: https://github.com/IvanOfThings/terraform-provider-clickhouse/issues
 - Documentation: See `docs/` directory
-- Architecture: See `CLAUDE.md` for privilege system details
+- Architecture: See `AGENTS.md` for privilege system details
