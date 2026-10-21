@@ -18,7 +18,7 @@ TF_ACC=1 go test ./pkg/provider ./pkg/resources/table -run '^TestAcc(Provider|Ta
 docker rm -f clickhouse-provider-test
 ```
 
-The table lifecycle tests use only `127.0.0.1:19000`. Existing legacy acceptance tests use the `TF_CLICKHOUSE_*` environment variables. CI also runs the table lifecycle with Terraform and OpenTofu. To run against OpenTofu locally, install `tofu`, set `TF_ACC_TERRAFORM_PATH` to its absolute path, and run the same SDK acceptance tests.
+The table lifecycle tests use only `127.0.0.1:19000`. Existing legacy acceptance tests use the `TF_CLICKHOUSE_*` environment variables. On every PR, CI runs the integration, bootstrap and lifecycle tests against ClickHouse `25.3`, `25.8`, `26.3` and `26.8` with both Terraform and OpenTofu. The Replicated/Distributed fixture uses the same ClickHouse version with embedded Keeper. Image tags track the latest patch in each series. To run against OpenTofu locally, install `tofu`, set `TF_ACC_TERRAFORM_PATH` to its absolute path, and run the same SDK acceptance tests.
 
 ## Requirements
 

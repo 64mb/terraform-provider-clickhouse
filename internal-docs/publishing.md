@@ -23,7 +23,7 @@ docker stop clickhouse-provider-tests
 
 The lifecycle task requires Terraform on PATH. To use OpenTofu instead, set `TF_ACC_TERRAFORM_PATH` to the absolute path to `tofu`, `TF_ACC_PROVIDER_HOST=registry.opentofu.org` and `TF_ACC_PROVIDER_NAMESPACE=hashicorp` as documented in [OpenTofu provider acceptance testing](https://opentofu.org/docs/language/providers/#running-acceptance-tests-with-opentofu-cli). The test harness namespace is independent of the published provider namespace.
 
-CI builds, vets and race-tests unit tests, checks the GoReleaser configuration, and runs table roundtrip, ALTER, maintenance rebuild and full lifecycle tests against ClickHouse 25.3 with both Terraform 1.6.6 and OpenTofu 1.13.1. Tests use the disposable local service only.
+CI builds, vets and race-tests unit tests, checks the GoReleaser configuration, and runs table roundtrip, ALTER, maintenance rebuild, bootstrap and full lifecycle tests against ClickHouse 25.3, 25.8, 26.3 and 26.8 with both Terraform 1.6.6 and OpenTofu 1.13.1. Each of the eight combinations uses disposable local services, including a separate ClickHouse instance with embedded Keeper for Replicated and Distributed tests. Both instances use the same version from the matrix. Major/minor image tags track the latest patch within each selected release series.
 
 ## Signed GitHub releases
 
