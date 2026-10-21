@@ -143,6 +143,15 @@ func (catalog privilegeCatalog) globalOnly(name string) bool {
 	return found
 }
 
+func (catalog privilegeCatalog) sourceDirection(privileges []string) bool {
+	for _, privilege := range privileges {
+		if catalog[strings.ToUpper(privilege)].Level == "SOURCE" {
+			return true
+		}
+	}
+	return false
+}
+
 func (catalog privilegeCatalog) replacementRequired(previous, desired []string) bool {
 	aggregate := func(privileges []string) map[string]bool {
 		result := map[string]bool{}

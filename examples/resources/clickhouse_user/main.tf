@@ -1,14 +1,14 @@
 terraform {
   required_providers {
     clickhouse = {
-      version = "2.0.0"
-      source  = "hashicorp.com/64mb/clickhouse"
+      version = "~> 1.1"
+      source  = "registry.opentofu.org/64mb/clickhouse"
     }
   }
 }
 
 provider "clickhouse" {
-  port = 8123
+  port = 9000
 }
 
 resource "clickhouse_db" "awesome_database" {

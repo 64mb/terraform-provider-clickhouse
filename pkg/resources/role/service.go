@@ -186,16 +186,23 @@ func (rs *CHRoleService) UpdateRole(ctx context.Context, plan RoleResource, data
 	if role == nil {
 		return nil, fmt.Errorf("role %q not found", oldName)
 	}
+	oldPrivileges, _ := data.GetChange("privileges")
+	previous := common.StringSetToList(oldPrivileges.(*schema.Set))
+	directional := catalog.sourceDirection(previous) || catalog.sourceDirection(privileges)
 	conn := *rs.CHConnection
 	if data.HasChange("name") {
 		if err := conn.Exec(ctx, fmt.Sprintf("ALTER ROLE %s RENAME TO %s", quoteRoleIdentifier(role.Name), quoteRoleIdentifier(plan.Name))); err != nil {
 			return nil, fmt.Errorf("rename role: %w", err)
 		}
 	}
-	oldPrivileges, _ := data.GetChange("privileges")
-	previous := common.StringSetToList(oldPrivileges.(*schema.Set))
-	replace := data.HasChange("database") || catalog.replacementRequired(previous, privileges)
-	if data.HasChange("privileges") && !replace {
+	replace := directional || data.HasChange("database") || catalog.replacementRequired(previous, privileges)
+	if directional && (data.HasChange("database") || data.HasChange("privileges")) && len(privileges) > 0 {
+		// direct replacement checks grant options atomically, while [CURRENT GRANTS] can omit ungrantable rights
+		query := fmt.Sprintf("GRANT %s ON %s TO %s WITH REPLACE OPTION", strings.Join(privileges, ","), roleScope(plan.Database), quoteRoleIdentifier(plan.Name))
+		if err := conn.Exec(ctx, query); err != nil {
+			return nil, fmt.Errorf("replace directional source privileges: %w", err)
+		}
+	} else if data.HasChange("privileges") && !replace {
 		previousSet := map[string]bool{}
 		for _, privilege := range previous {
 			previousSet[strings.ToUpper(privilege)] = true
