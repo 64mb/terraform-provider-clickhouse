@@ -9,19 +9,19 @@ import (
 
 func TestParseGrantStatement(t *testing.T) {
 	tests := []struct {
-		name            string
-		statement       string
-		roleName        string
-		expectedGrants  []CHGrant
-		expectError     bool
-		errorContains   string
+		name           string
+		statement      string
+		roleName       string
+		expectedGrants []CHGrant
+		expectError    bool
+		errorContains  string
 	}{
 		{
 			name:      "global privilege - REMOTE",
 			statement: "GRANT REMOTE ON *.* TO test_role",
 			roleName:  "test_role",
 			expectedGrants: []CHGrant{
-				{RoleName: "test_role", AccessType: "REMOTE", Database: "*"},
+				{RoleName: "test_role", AccessType: "REMOTE", Database: "*", Scope: "*.*"},
 			},
 			expectError: false,
 		},
@@ -30,7 +30,7 @@ func TestParseGrantStatement(t *testing.T) {
 			statement: "GRANT S3 ON *.* TO test_role",
 			roleName:  "test_role",
 			expectedGrants: []CHGrant{
-				{RoleName: "test_role", AccessType: "S3", Database: "*"},
+				{RoleName: "test_role", AccessType: "S3", Database: "*", Scope: "*.*"},
 			},
 			expectError: false,
 		},
@@ -39,7 +39,7 @@ func TestParseGrantStatement(t *testing.T) {
 			statement: "GRANT SELECT ON mydb.* TO test_role",
 			roleName:  "test_role",
 			expectedGrants: []CHGrant{
-				{RoleName: "test_role", AccessType: "SELECT", Database: "mydb"},
+				{RoleName: "test_role", AccessType: "SELECT", Database: "mydb", Scope: "mydb.*"},
 			},
 			expectError: false,
 		},
@@ -48,8 +48,8 @@ func TestParseGrantStatement(t *testing.T) {
 			statement: "GRANT SELECT, INSERT ON mydb.* TO test_role",
 			roleName:  "test_role",
 			expectedGrants: []CHGrant{
-				{RoleName: "test_role", AccessType: "SELECT", Database: "mydb"},
-				{RoleName: "test_role", AccessType: "INSERT", Database: "mydb"},
+				{RoleName: "test_role", AccessType: "SELECT", Database: "mydb", Scope: "mydb.*"},
+				{RoleName: "test_role", AccessType: "INSERT", Database: "mydb", Scope: "mydb.*"},
 			},
 			expectError: false,
 		},
@@ -58,7 +58,7 @@ func TestParseGrantStatement(t *testing.T) {
 			statement: "GRANT SELECT ON system.* TO test_role",
 			roleName:  "test_role",
 			expectedGrants: []CHGrant{
-				{RoleName: "test_role", AccessType: "SELECT", Database: "system"},
+				{RoleName: "test_role", AccessType: "SELECT", Database: "system", Scope: "system.*"},
 			},
 			expectError: false,
 		},
@@ -130,69 +130,25 @@ func TestParseGrantStatement(t *testing.T) {
 	}
 }
 
-func TestGetGrantQuery(t *testing.T) {
-	tests := []struct {
-		name       string
-		roleName   string
-		privileges []string
-		database   string
-		expected   string
-	}{
-		{
-			name:       "global privilege - REMOTE",
-			roleName:   "test_role",
-			privileges: []string{"REMOTE"},
-			database:   "*",
-			expected:   "GRANT REMOTE ON *.* TO test_role",
-		},
-		{
-			name:       "global privilege - S3",
-			roleName:   "test_role",
-			privileges: []string{"S3"},
-			database:   "*",
-			expected:   "GRANT S3 ON *.* TO test_role",
-		},
-		{
-			name:       "database privilege - regular database",
-			roleName:   "test_role",
-			privileges: []string{"SELECT", "INSERT"},
-			database:   "mydb",
-			expected:   "GRANT SELECT,INSERT ON mydb.* TO test_role",
-		},
-		{
-			name:       "database privilege - system database",
-			roleName:   "test_role",
-			privileges: []string{"SELECT"},
-			database:   "system",
-			expected:   "GRANT CURRENT GRANTS (SELECT ON system.*) TO test_role",
-		},
-		{
-			name:       "database privilege - wildcard database",
-			roleName:   "test_role",
-			privileges: []string{"SELECT"},
-			database:   "*",
-			expected:   "GRANT CURRENT GRANTS (SELECT ON *.*) TO test_role",
-		},
-		{
-			name:       "mixed privileges - global and database",
-			roleName:   "test_role",
-			privileges: []string{"REMOTE", "SELECT"},
-			database:   "*",
-			expected:   "GRANT REMOTE ON *.* TO test_role; GRANT CURRENT GRANTS (SELECT ON *.*) TO test_role",
-		},
-		{
-			name:       "multiple global privileges",
-			roleName:   "test_role",
-			privileges: []string{"REMOTE", "S3"},
-			database:   "*",
-			expected:   "GRANT REMOTE,S3 ON *.* TO test_role",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := getGrantQuery(tt.roleName, tt.privileges, tt.database)
-			assert.Equal(t, tt.expected, result)
-		})
+func TestParseGrantQuotedIdentifiers(t *testing.T) {
+	grants, err := parseGrantStatement("GRANT SELECT ON `db TO other\\`name`.* TO `role ON other\\`name`", "role ON other`name")
+	require.NoError(t, err)
+	require.Equal(t, "db TO other`name", grants[0].Database)
+	require.Equal(t, "role ON other`name", grants[0].RoleName)
+	unicodeGrants, err := parseGrantStatement("grant SELECT on `db ı TO other`.* to `role ı ON other`", "role ı ON other")
+	require.NoError(t, err)
+	require.Equal(t, "db ı TO other", unicodeGrants[0].Database)
+	grants, err = parseGrantStatement("GRANT CREATE USER ON * TO `role`", "role")
+	require.NoError(t, err)
+	require.Equal(t, "*", grants[0].Database)
+	require.Equal(t, "*", grants[0].Scope)
+	for _, statement := range []string{
+		"GRANT SELECT ON db.* TO role WITH GRANT OPTION",
+		"GRANT SELECT ON db.* TO role; DROP ROLE other",
+		"GRANT SELECT(x) ON db.* TO role",
+		"GRANT SELECT ON `unterminated.* TO role",
+	} {
+		_, err := parseGrantStatement(statement, "role")
+		require.Error(t, err)
 	}
 }

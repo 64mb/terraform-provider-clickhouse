@@ -2,122 +2,35 @@ package resourcerole
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 )
 
-var AllowedDbLevelPrivileges = []string{
-	"SELECT",
-	"INSERT",
-	"ALTER",
-	"CREATE DATABASE",
-	"CREATE TABLE",
-	"CREATE VIEW",
-	"CREATE DICTIONARY",
-	"DROP DATABASE",
-	"DROP TABLE",
-	"DROP DICTIONARY",
-	"DROP VIEW",
-	"SHOW TABLES",
-	"dictGet",
-	"TRUNCATE",
-}
+var privilegeNamePattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]*( [A-Za-z][A-Za-z0-9_]*)*$`)
 
-// SOURCE privileges that expand into READ + WRITE (v25.7+)
-// See: https://clickhouse.com/docs/sql-reference/statements/grant#privileges
-var ExpandableSourcePrivileges = []string{
-	"REMOTE",
-	"S3",
-	"AZURE",
-	"HDFS",
-	"URL",
-	"MYSQL",
-	"POSTGRES",
-	"MONGO",
-	"KAFKA",
-}
-
-var AllowedGlobalPrivileges = []string{
-	// Source privileges (expand to READ + WRITE)
-	"REMOTE",
-	"S3",
-	"AZURE",
-	"HDFS",
-	"URL",
-	"MYSQL",
-	"POSTGRES",
-	"MONGO",
-	"KAFKA",
-	// System privileges
-	"SYSTEM FLUSH LOGS",
-	"SYSTEM RELOAD DICTIONARY",
-	// Table creation
-	"CREATE TEMPORARY TABLE",
-	// Function management
-	"CREATE FUNCTION",
-	"DROP FUNCTION",
-}
-
-func IsExpandablePrivilege(privilege string) bool {
-	for _, expandablePrivilege := range ExpandableSourcePrivileges {
-		if privilege == expandablePrivilege {
-			return true
+func validPrivilegeName(privilege string) bool {
+	if !privilegeNamePattern.MatchString(privilege) {
+		return false
+	}
+	for _, word := range strings.Fields(strings.ToUpper(privilege)) {
+		switch word {
+		case "ON", "TO", "FROM", "WITH", "GRANT", "REVOKE", "CURRENT", "OPTION":
+			return false
 		}
 	}
-	return false
+	return true
 }
 
-var AllowedPrivileges = append(AllowedDbLevelPrivileges, AllowedGlobalPrivileges...)
-
-func IsGlobalPrivilege(privilege string) bool {
-	for _, globalPrivilege := range AllowedGlobalPrivileges {
-		if privilege == globalPrivilege {
-			return true
-		}
-	}
-	return false
-}
-
-func ValidatePrivileges(database string, privileges *schema.Set) diag.Diagnostics {
+func ValidatePrivileges(_ string, privileges *schema.Set) diag.Diagnostics {
 	var diagnostics diag.Diagnostics
-
-	for _, privilege := range privileges.List() {
-		validatePrivilege(database, privilege.(string), &diagnostics)
+	for _, value := range privileges.List() {
+		privilege := value.(string)
+		if !validPrivilegeName(privilege) {
+			diagnostics = append(diagnostics, diag.Diagnostic{Severity: diag.Error, Summary: "invalid privilege name", Detail: fmt.Sprintf("%q must be a privilege name without SQL clauses, punctuation or surrounding whitespace", privilege)})
+		}
 	}
 	return diagnostics
-}
-
-func validatePrivilege(database string, privilege string, diagnostics *diag.Diagnostics) {
-	isAllowed := false
-
-	if IsGlobalPrivilege(privilege) && database != "*" {
-		diagnostic := diag.Diagnostic{
-			Severity: diag.Error,
-			Summary:  "wrong value",
-			Detail: fmt.Sprintf(
-				"Global privilege %s is only allowed for database '*'",
-				privilege),
-		}
-		*diagnostics = append(*diagnostics, diagnostic)
-		return
-	}
-	for _, allowedPrivilege := range AllowedPrivileges {
-		if privilege == allowedPrivilege {
-			isAllowed = true
-			break
-		}
-	}
-	if isAllowed == false {
-		diagnostic := diag.Diagnostic{
-			Severity: diag.Error,
-			Summary:  "wrong value",
-			Detail: fmt.Sprintf(
-				"%s is not in the allowed privileges list: [%s]",
-				privilege,
-				strings.Join(AllowedPrivileges, ", ")),
-		}
-		*diagnostics = append(*diagnostics, diagnostic)
-	}
 }

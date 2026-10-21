@@ -75,19 +75,19 @@ var test1StepsData = []TestStepData{
 		// Check all allowed privileges
 		roleName:   roleName1,
 		database:   databaseName1,
-		privileges: resourcerole.AllowedDbLevelPrivileges,
+		privileges: legacyDatabasePrivileges,
 	},
 	{
 		// Change role name
 		roleName:   roleName2,
 		database:   databaseName1,
-		privileges: resourcerole.AllowedDbLevelPrivileges,
+		privileges: legacyDatabasePrivileges,
 	},
 	{
 		// Change role name and db
 		roleName:   roleName1,
 		database:   databaseName2,
-		privileges: resourcerole.AllowedDbLevelPrivileges,
+		privileges: legacyDatabasePrivileges,
 	},
 	{
 		// Change role name, db and privileges
@@ -129,13 +129,13 @@ var test2StepsData = []TestStepData{
 		// Check all allowed privileges
 		roleName:   roleName1,
 		database:   "system",
-		privileges: resourcerole.AllowedDbLevelPrivileges,
+		privileges: legacyDatabasePrivileges,
 	},
 	{
 		// Change role name
 		roleName:   roleName2,
 		database:   "system",
-		privileges: resourcerole.AllowedDbLevelPrivileges,
+		privileges: legacyDatabasePrivileges,
 	},
 }
 
@@ -798,7 +798,7 @@ func TestAccResourceRole(t *testing.T) {
 				// Create role
 				roleName:   roleName1,
 				database:   "*",
-				privileges: resourcerole.AllowedGlobalPrivileges,
+				privileges: legacyGlobalPrivileges,
 			}}),
 	})
 	// Validate privileges on create
@@ -811,7 +811,7 @@ func TestAccResourceRole(t *testing.T) {
 					databaseName1,
 					common.Quote([]string{"NOT_ALLOWED_PRIVILEGE"}),
 				),
-				ExpectError: regexp.MustCompile("NOT_ALLOWED_PRIVILEGE is not in the allowed privileges list"),
+				ExpectError: regexp.MustCompile(`privilege "NOT_ALLOWED_PRIVILEGE" is not supported by this ClickHouse server`),
 			},
 		},
 	})
@@ -828,19 +828,23 @@ func TestAccResourceRole(t *testing.T) {
 			},
 		},
 	})
-	resource.Test(t, resource.TestCase{
-		Providers: testutils.Provider(),
-		Steps: []resource.TestStep{
-			{
-				Config: testAccRoleResource(
-					roleName1,
-					databaseName1,
-					common.Quote([]string{"SYSTEM RELOAD DICTIONARY"}),
-				),
-				ExpectError: regexp.MustCompile("Global privilege SYSTEM RELOAD DICTIONARY is only allowed for database '\\*'"),
-			},
-		},
-	})
+
+	dictionaryClient := testutils.TestAccProvider.Meta().(*common.ApiClient)
+	var dictionaryLevel string
+	if err := (*dictionaryClient.ClickhouseConnection).QueryRow(context.Background(), "SELECT toString(level) FROM system.privileges WHERE toString(privilege) = 'SYSTEM RELOAD DICTIONARY'").Scan(&dictionaryLevel); err != nil {
+		t.Fatal(err)
+	}
+	dictionaryConfig := testAccRoleResource(roleName1, databaseName1, common.Quote([]string{"SYSTEM RELOAD DICTIONARY"}))
+	dictionaryStep := resource.TestStep{Config: dictionaryConfig, Check: testutils.CheckStateSetAttr("privileges", roleResource, []string{"SYSTEM RELOAD DICTIONARY"})}
+	if dictionaryLevel == "GLOBAL" {
+		dictionaryStep.ExpectError = regexp.MustCompile("Global privilege SYSTEM RELOAD DICTIONARY is only allowed for database '\\*'")
+	}
+	dictionarySteps := []resource.TestStep{dictionaryStep}
+	if dictionaryLevel != "GLOBAL" {
+		dictionarySteps = append(dictionarySteps, resource.TestStep{Config: dictionaryConfig, PlanOnly: true})
+	}
+	resource.Test(t, resource.TestCase{Providers: testutils.Provider(), Steps: dictionarySteps})
+
 	resource.Test(t, resource.TestCase{
 		Providers: testutils.Provider(),
 		Steps: []resource.TestStep{
@@ -898,7 +902,7 @@ func TestAccResourceRole(t *testing.T) {
 					databaseName1,
 					common.Quote([]string{"NOT_ALLOWED_PRIVILEGE"}),
 				),
-				ExpectError: regexp.MustCompile("NOT_ALLOWED_PRIVILEGE is not in the allowed privileges list"),
+				ExpectError: regexp.MustCompile(`privilege "NOT_ALLOWED_PRIVILEGE" is not supported by this ClickHouse server`),
 			},
 		},
 	})
@@ -962,8 +966,51 @@ func testAccCheckRoleResourceExists(roleName string, database string, privileges
 			return fmt.Errorf("role %s not found", roleName)
 		}
 
+		var canonical, alterMembers []string
+		for _, privilege := range privileges {
+			if privilege == "ALTER" {
+				rows, err := (*conn).Query(context.Background(), "SELECT toString(privilege) FROM system.privileges WHERE toString(parent_group) = 'ALTER' AND (? = '*' OR ifNull(toString(level), '') IN ('', 'DATABASE', 'TABLE', 'COLUMN', 'VIEW', 'DICTIONARY'))", database)
+				if err != nil {
+					return fmt.Errorf("read server ALTER group members: %w", err)
+				}
+				for rows.Next() {
+					var member string
+					if err := rows.Scan(&member); err != nil {
+						rows.Close()
+						return err
+					}
+					canonical = append(canonical, member)
+					alterMembers = append(alterMembers, member)
+				}
+				readErr := rows.Err()
+				closeErr := rows.Close()
+				if readErr != nil {
+					return readErr
+				}
+				if closeErr != nil {
+					return closeErr
+				}
+			} else {
+				canonical = append(canonical, privilege)
+			}
+		}
+		privileges = canonical
+		var actual []resourcerole.CHGrant
+		for _, grant := range dbRole.Privileges {
+			if grant.AccessType == "ALTER" && len(alterMembers) > 0 {
+				for _, member := range alterMembers {
+					expanded := grant
+					expanded.AccessType = member
+					actual = append(actual, expanded)
+				}
+			} else {
+				actual = append(actual, grant)
+			}
+		}
+		dbRole.Privileges = actual
+
 		if len(privileges) != len(dbRole.Privileges) {
-			return fmt.Errorf("role privileges length mismatching between db and state")
+			return fmt.Errorf("role privileges length mismatching between db and state: expected %v, actual %v", privileges, dbRole.GetPrivilegesList())
 		}
 
 		for _, privilege := range privileges {
@@ -1144,3 +1191,6 @@ func testAccCheckRoleHasNoPrivilegesOnDatabase(roleName, database string) resour
 		return nil
 	}
 }
+
+var legacyDatabasePrivileges = []string{"SELECT", "INSERT", "ALTER", "CREATE DATABASE", "CREATE TABLE", "CREATE VIEW", "CREATE DICTIONARY", "DROP DATABASE", "DROP TABLE", "DROP DICTIONARY", "DROP VIEW", "SHOW TABLES", "dictGet", "TRUNCATE"}
+var legacyGlobalPrivileges = []string{"REMOTE", "S3", "AZURE", "HDFS", "URL", "MYSQL", "POSTGRES", "MONGO", "KAFKA", "SYSTEM FLUSH LOGS", "SYSTEM RELOAD DICTIONARY", "CREATE TEMPORARY TABLE", "CREATE FUNCTION", "DROP FUNCTION"}

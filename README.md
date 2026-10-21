@@ -73,7 +73,7 @@ Refresh, import and data-source reads require a reachable server. See
 | --- | --- | --- |
 | `clickhouse_db` | Create databases and manage comments | [Database](docs/resources/db.md) |
 | `clickhouse_table` | Manage table definitions, import existing tables and apply supported ALTER operations | [Table](docs/resources/table.md) |
-| `clickhouse_role` | Grant database-level privileges to a role | [Role](docs/resources/role.md) |
+| `clickhouse_role` | Manage roles with database or global privileges | [Role](docs/resources/role.md) |
 | `clickhouse_user` | Create users and assign roles | [User](docs/resources/user.md) |
 | `clickhouse_dbs` · data source | List databases and their metadata | [Databases](docs/data-sources/dbs.md) |
 

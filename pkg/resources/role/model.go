@@ -10,12 +10,15 @@ import (
 type CHGrant struct {
 	RoleName   string `ch:"role_name"`
 	AccessType string `ch:"access_type"`
+	Scope      string
 	Database   string `ch:"database"`
 }
 
 type CHRole struct {
-	Name       string `ch:"name"`
-	Privileges []CHGrant
+	Name                string `ch:"name"`
+	Privileges          []CHGrant
+	EffectivePrivileges []string
+	RawPrivileges       []string
 }
 
 type RoleResource struct {
