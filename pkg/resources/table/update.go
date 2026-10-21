@@ -173,7 +173,7 @@ func resourceTableUpdate(ctx context.Context, d *schema.ResourceData, meta inter
 		return diag.FromErr(err)
 	}
 	omitImplicitDefaults(next, old)
-	preserveConfiguredExpressions(ctx, client.ClickhouseConnection, d, old)
+	preserveConfiguredExpressions(ctx, client.ClickhouseConnection, d, old, replicationPathMacrosEnabled(ctx, client.ClickhouseConnection, old.Engine))
 	old.Cluster = next.Cluster
 	old.Columns = restoreNestedColumns(next.Columns, old.Columns)
 	if len(next.PrimaryKey) == 0 {
