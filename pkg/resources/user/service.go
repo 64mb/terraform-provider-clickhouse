@@ -14,20 +14,29 @@ type CHUserService struct {
 	CHConnection *driver.Conn
 }
 
-func (us *CHUserService) GetUser(ctx context.Context, userName string) (*CHUser, error) {
-	roleQuery := fmt.Sprintf("SELECT name, default_roles_list FROM system.users WHERE name = '%s'", userName)
+func (us *CHUserService) GetUser(ctx context.Context, userName string) (user *CHUser, err error) {
+	roleQuery := "SELECT name, default_roles_list FROM system.users WHERE name = ?"
 
-	rows, err := (*us.CHConnection).Query(ctx, roleQuery)
+	rows, err := (*us.CHConnection).Query(ctx, roleQuery, userName)
 	if err != nil {
-		return nil, fmt.Errorf("error fetching user: %s", err)
+		return nil, fmt.Errorf("error fetching user: %w", err)
 	}
-	if rows.Next() == false {
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil && err == nil {
+			user = nil
+			err = fmt.Errorf("error closing user result: %w", closeErr)
+		}
+	}()
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return nil, fmt.Errorf("error reading user: %w", err)
+		}
 		return nil, nil
 	}
 	var chUser CHUser
 	err = rows.ScanStruct(&chUser)
 	if err != nil {
-		return nil, fmt.Errorf("error scanning user: %s", err)
+		return nil, fmt.Errorf("error scanning user: %w", err)
 	}
 
 	return &chUser, nil
