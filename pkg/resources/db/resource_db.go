@@ -2,7 +2,10 @@ package resourcedb
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
+	"strings"
 
 	resourcetable "github.com/64mb/terraform-provider-clickhouse/pkg/resources/table"
 
@@ -20,6 +23,7 @@ func ResourceDb() *schema.Resource {
 		CreateContext: resourceDbCreate,
 		ReadContext:   resourceDbRead,
 		DeleteContext: resourceDbDelete,
+		Importer:      &schema.ResourceImporter{StateContext: importDatabase},
 
 		Schema: map[string]*schema.Schema{
 			"cluster": &schema.Schema{
@@ -73,35 +77,19 @@ func resourceDbRead(ctx context.Context, d *schema.ResourceData, meta any) diag.
 	defaultCluster := client.DefaultCluster
 
 	database_name := d.Get("name").(string)
-	row := conn.QueryRow(ctx, fmt.Sprintf("SELECT name, engine, data_path, metadata_path, uuid, comment FROM system.databases where name = '%v'", database_name))
-
-	if row.Err() != nil {
-		return diag.FromErr(fmt.Errorf("reading database from Clickhouse: %v", row.Err()))
-	}
-
+	row := conn.QueryRow(ctx, "SELECT name, engine, data_path, metadata_path, uuid, comment FROM system.databases WHERE name = ?", database_name)
 	var name, engine, dataPath, metadataPath, uuid, storedComment string
-
 	err := row.Scan(&name, &engine, &dataPath, &metadataPath, &uuid, &storedComment)
-	if err != nil {
-		return diag.FromErr(fmt.Errorf("scanning Clickhouse DB row: %v", err))
+	if errors.Is(err, sql.ErrNoRows) {
+		d.SetId("")
+		return nil
 	}
-
-	if name == "" {
-		diags = append(diags, diag.Diagnostic{
-			Severity: diag.Error,
-			Summary:  fmt.Sprintf("Database %v not found", database_name),
-			Detail:   "Not possible to retrieve db from server. Could you be performing operation in a cluster? If so try configuring default cluster name on you provider configuration.",
-		})
-		return diags
+	if err != nil {
+		return diag.FromErr(fmt.Errorf("reading database %q: %w", database_name, err))
 	}
 
 	comment, cluster, err := common.UnmarshalComment(storedComment)
 	if err != nil {
-		diags = append(diags, diag.Diagnostic{
-			Severity: diag.Warning,
-			Summary:  fmt.Sprintf("Unable to unmarshal comments for db %q", name),
-			Detail:   "Unable to unmarshal comments in order to retrieve cluster information for the table, so that default cluster is going to be used instead.",
-		})
 		comment, cluster = storedComment, defaultCluster
 	}
 	if configuredCluster := d.Get("cluster").(string); configuredCluster != "" {
@@ -177,7 +165,7 @@ func resourceDbCreate(ctx context.Context, d *schema.ResourceData, meta any) dia
 	databaseName := d.Get("name").(string)
 	comment := d.Get("comment").(string)
 
-	query := fmt.Sprintf("CREATE DATABASE %v %v COMMENT '%v'", databaseName, clusterStatement, common.GetComment(comment, cluster))
+	query := fmt.Sprintf("CREATE DATABASE %v %v COMMENT '%v'", quoteDatabaseIdentifier(databaseName), clusterStatement, common.GetComment(comment, cluster))
 
 	err := conn.Exec(common.ClusterDDLContext(ctx, cluster, nil), query)
 	if err != nil {
@@ -234,7 +222,7 @@ func resourceDbDelete(ctx context.Context, d *schema.ResourceData, meta any) dia
 
 	clusterStatement := common.GetClusterStatement(cluster)
 
-	query := fmt.Sprintf("DROP DATABASE %v %v SYNC", databaseName, clusterStatement)
+	query := fmt.Sprintf("DROP DATABASE %v %v SYNC", quoteDatabaseIdentifier(databaseName), clusterStatement)
 
 	err = (*conn).Exec(common.ClusterDDLContext(ctx, cluster, nil), query)
 	if err != nil {
@@ -242,4 +230,26 @@ func resourceDbDelete(ctx context.Context, d *schema.ResourceData, meta any) dia
 	}
 	d.SetId("")
 	return diags
+}
+
+func importDatabase(ctx context.Context, d *schema.ResourceData, meta interface{}) ([]*schema.ResourceData, error) {
+	id := d.Id()
+	cluster, name := "", id
+	if before, after, found := strings.Cut(id, ":"); found {
+		cluster, name = before, after
+	}
+	if name == "" {
+		return nil, fmt.Errorf("invalid database import ID %q: expected name or cluster:name", id)
+	}
+	if err := d.Set("name", name); err != nil {
+		return nil, err
+	}
+	if err := d.Set("cluster", cluster); err != nil {
+		return nil, err
+	}
+	return []*schema.ResourceData{d}, nil
+}
+
+func quoteDatabaseIdentifier(name string) string {
+	return "`" + strings.NewReplacer("\\", "\\\\", "`", "\\`").Replace(name) + "`"
 }

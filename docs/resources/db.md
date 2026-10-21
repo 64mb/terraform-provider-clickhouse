@@ -33,3 +33,26 @@ Resource to handle clickhouse databases.
 - `uuid` (String) Database UUID
 
 
+## Import
+
+Import an existing database by name, or prefix its name with a cluster:
+
+```shell
+terraform import clickhouse_db.analytics 'analytics'
+terraform import clickhouse_db.analytics 'my_cluster:analytics'
+```
+
+The legacy standalone ID `:analytics` is also accepted. The first colon separates
+cluster and database names. To import a standalone database whose name contains a
+colon, prefix it with `:`.
+
+Import only reads the connected server. It preserves database and table UUIDs,
+comments, and data. Set `name` and `comment` in the resource configuration to match
+the imported database before applying, since changing either recreates the database.
+
+An explicit import cluster takes precedence over provider metadata in the database
+comment, followed by `default_cluster`. Provider metadata has string fields `comment` and `cluster`; additional fields
+are accepted for compatibility. Comments without both string fields, including
+unrelated JSON, remain plain text. Import does not check that database definitions agree across cluster
+nodes. Subsequent deletion uses the selected cluster and refuses to delete a
+database while tables remain on any target node.

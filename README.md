@@ -105,6 +105,11 @@ password through your normal secrets workflow.
 
 ### Existing tables & schema changes
 
+Import an existing database with `tofu import clickhouse_db.analytics 'analytics'`,
+or use `'my_cluster:analytics'` for an explicit cluster. Import preserves existing
+comments and data. See the [database resource](docs/resources/db.md#import) for
+cluster selection and configuration details.
+
 Import an existing table with its database and table name, optionally prefixed
 by an explicit cluster target:
 
