@@ -11,7 +11,13 @@ import (
 
 func ResourceRole() *schema.Resource {
 	return &schema.Resource{
-		Description:   "Resource to manage Clickhouse roles",
+		Description: "Resource to manage Clickhouse roles",
+		CustomizeDiff: func(_ context.Context, diff *schema.ResourceDiff, _ interface{}) error {
+			if diff.HasChange("name") || diff.HasChange("database") || diff.HasChange("privileges") {
+				return diff.SetNewComputed("granted_privileges")
+			}
+			return nil
+		},
 		CreateContext: resourceRoleCreate,
 		ReadContext:   resourceRoleRead,
 		DeleteContext: resourceRoleDelete,
@@ -26,6 +32,12 @@ func ResourceRole() *schema.Resource {
 				Description: "Database where to grant permissions to the user. You can apply privileges to all databases by using '*'",
 				Type:        schema.TypeString,
 				Required:    true,
+			},
+			"granted_privileges": {
+				Description: "Effective server grants recorded after the last apply, including each privilege and scope",
+				Type:        schema.TypeSet,
+				Computed:    true,
+				Elem:        &schema.Schema{Type: schema.TypeString},
 			},
 			"privileges": {
 				Description: "Granted privileges to the role. Privileges will be granted at DB level",
@@ -59,11 +71,13 @@ func resourceRoleUpdate(ctx context.Context, d *schema.ResourceData, meta interf
 	chRole, err := chRoleService.UpdateRole(ctx, RoleResource{Name: planRoleName, Database: planDatabase, Privileges: planPrivileges}, d)
 
 	if err != nil {
-		return diag.FromErr(fmt.Errorf("resource role update: %v", err))
+		return diag.FromErr(fmt.Errorf("resource role update: %w", err))
 	}
 
 	d.SetId(chRole.Name)
-
+	if err := recordRoleGrants(d, chRole); err != nil {
+		return diag.FromErr(err)
+	}
 	return diags
 }
 
@@ -77,30 +91,36 @@ func resourceRoleRead(ctx context.Context, d *schema.ResourceData, meta any) dia
 	roleNameState := d.Get("name").(string)
 	chRole, err := chRoleService.GetRole(ctx, roleNameState)
 	if err != nil {
-		return diag.FromErr(fmt.Errorf("resource role read: %v", err))
+		return diag.FromErr(fmt.Errorf("resource role read: %w", err))
 	}
 
+	if chRole == nil {
+		d.SetId("")
+		return nil
+	}
+
+	previousSnapshot := d.Get("granted_privileges").(*schema.Set)
+	currentSnapshot := effectiveGrants(chRole)
+	if sameRoleSnapshot(previousSnapshot, currentSnapshot) {
+		if !snapshotHasRaw(previousSnapshot) && snapshotHasRaw(currentSnapshot) {
+			return diag.FromErr(recordRoleGrants(d, chRole))
+		}
+		return nil
+	}
 	roleResource, err := chRole.ToRoleResource()
 	if err != nil {
-		return diag.FromErr(fmt.Errorf("resource role read: %v", err))
+		return diag.FromErr(fmt.Errorf("resource role read: %w", err))
 	}
 
 	if err := d.Set("name", roleResource.Name); err != nil {
-		return diag.FromErr(fmt.Errorf("resource role read: %v", err))
+		return diag.FromErr(fmt.Errorf("resource role read: %w", err))
 	}
 
-	// When role has no privileges, ClickHouse doesn't store database info
-	// Preserve database from state instead of clearing it
-	if roleResource.Database == "" && len(roleResource.Privileges.List()) == 0 {
-		// Keep existing database from state
+	if roleResource.Database == "" {
 		roleResource.Database = d.Get("database").(string)
 	}
-
-	if err := d.Set("database", roleResource.Database); err != nil {
-		return diag.FromErr(fmt.Errorf("resource role read: %v", err))
-	}
-	if err := d.Set("privileges", &roleResource.Privileges); err != nil {
-		return diag.FromErr(fmt.Errorf("resource role read: %v", err))
+	if err := chRoleService.refreshRoleState(ctx, d, chRole, roleResource); err != nil {
+		return diag.FromErr(err)
 	}
 
 	d.SetId(roleResource.Name)
@@ -126,11 +146,13 @@ func resourceRoleCreate(ctx context.Context, d *schema.ResourceData, meta any) d
 	chRole, err := chRoleService.CreateRole(ctx, roleName, database, common.StringSetToList(privileges))
 
 	if err != nil {
-		return diag.FromErr(fmt.Errorf("resource role create: %v", err))
+		return diag.FromErr(fmt.Errorf("resource role create: %w", err))
 	}
 
 	d.SetId(chRole.Name)
-
+	if err := recordRoleGrants(d, chRole); err != nil {
+		return diag.FromErr(err)
+	}
 	return diags
 }
 
@@ -143,7 +165,7 @@ func resourceRoleDelete(ctx context.Context, d *schema.ResourceData, meta any) d
 	chRoleService := CHRoleService{CHConnection: conn}
 
 	if err := chRoleService.DeleteRole(ctx, roleName); err != nil {
-		return diag.FromErr(fmt.Errorf("resource role delete: %v", err))
+		return diag.FromErr(fmt.Errorf("resource role delete: %w", err))
 	}
 	return diags
 }

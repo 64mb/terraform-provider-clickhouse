@@ -26,6 +26,47 @@ Resource to manage Clickhouse roles
 
 ### Read-Only
 
+- `granted_privileges` (Set of String) Observed server grants with their scopes
 - `id` (String) The ID of this resource.
 
 
+## Privilege names and scope
+
+Privilege names come from the connected ClickHouse server's `system.privileges`
+catalog, including its aliases. The provider checks the name syntax and server
+scope before changing grants instead of maintaining a fixed list of allowed names.
+
+```hcl
+resource "clickhouse_role" "analytics" {
+  name       = "analytics_editor"
+  database   = "analytics"
+  privileges = ["SELECT", "OPTIMIZE", "ALTER ADD COLUMN"]
+}
+```
+
+Use `ALL` for all privileges applicable to the selected scope, or groups such as
+`ALTER`. Global-only privileges require `database = "*"`. This resource manages
+one database scope or global scope; table-specific and column-specific grant
+expressions are outside its configuration schema.
+
+For database-level privileges on `system` and `*`, the existing `CURRENT GRANTS`
+behavior grants only privileges available to the connection user. `ALL` therefore
+does not necessarily make a role a full administrator. Inspect `granted_privileges`
+to see the effective assignment.
+
+## Refresh and updates
+
+ClickHouse may expand `ALL`, groups and aliases when reporting grants. The provider
+preserves the requested `privileges` while the effective grants match the recorded
+assignment, avoiding repeated plans for server normalization. External changes to
+grants are detected during refresh. `granted_privileges` is read-only and uses
+`NONE` when no privileges are assigned.
+
+Refresh uses `SHOW GRANTS` and, when permitted, additional details from
+`system.grants`. Credentials that cannot read those details keep using
+`SHOW GRANTS` without requiring new grants. Changes that ClickHouse renders
+identically in `SHOW GRANTS`, such as some source READ/WRITE permissions, can
+only be detected when the additional details are accessible.
+
+Role operations run on the connected node without `ON CLUSTER`. Partial REVOKE
+management and multiple independent database scopes remain unsupported.
