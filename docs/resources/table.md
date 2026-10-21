@@ -109,3 +109,17 @@ A single `EXCHANGE TABLES` atomically switches names. The old table is **never a
 The operation ID selects a deterministic staging/backup name. A journal in table metadata binds it to the source UUID and target definition. Keep the same configuration and operation ID on retry. Before switching, an owned partial staging table is truncated and recopied. After a lost EXCHANGE response, UUID/journal checks recognize completion and prevent exchanging twice. Staging names owned by other operations are rejected. Refresh recovers the backup name from the journal. Keep the backup and journal intact through recovery. Use a new operation ID for another rebuild, or disable/remove the block before normal alterations. Do not run concurrent migrations of the same table.
 
 ClickHouse's relevant contracts: [ALTER columns](https://clickhouse.com/docs/sql-reference/statements/alter/column), [sorting key restrictions](https://clickhouse.com/docs/sql-reference/statements/alter/order-by), [EXCHANGE](https://clickhouse.com/docs/sql-reference/statements/exchange), [Atomic databases](https://clickhouse.com/docs/engines/database-engines/atomic), [replication](https://clickhouse.com/docs/engines/table-engines/mergetree-family/replication)
+
+### Cluster DDL completion
+
+For `ON CLUSTER`, database and table DDL explicitly waits for all target hosts
+and returns remote execution errors, even when the server profile uses
+`never_throw` or asynchronous distributed DDL. The wait is limited to 180 seconds
+and shortened to the remaining operation deadline. Existing `alter_sync` and
+`mutations_sync` settings still apply to table updates.
+
+Distributed DDL is not atomic: a failed apply may already have changed some nodes,
+and timed-out tasks can execute later. Inspect the cluster DDL queue and reconcile
+partial changes before retrying. Refresh reads the connected node and does not
+audit schema consistency across the cluster. Database deletion checks every target
+node for remaining tables and fails if a node cannot be checked.

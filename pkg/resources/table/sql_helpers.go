@@ -2,6 +2,8 @@ package resourcetable
 
 import (
 	"fmt"
+
+	"github.com/64mb/terraform-provider-clickhouse/pkg/common"
 	"sort"
 	"strings"
 	"unicode"
@@ -18,7 +20,7 @@ func clusterClause(s string) string {
 	if s == "" {
 		return ""
 	}
-	return "ON CLUSTER " + quoteIdent(s)
+	return common.GetClusterStatement(s)
 }
 
 // find delimiters outside literals and nested expressions

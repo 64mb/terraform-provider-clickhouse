@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/64mb/terraform-provider-clickhouse/pkg/common"
+
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 )
 
@@ -81,7 +83,7 @@ func (ts *CHTableService) CreateTable(ctx context.Context, tableResource TableRe
 		return err
 	}
 	query := buildCreateOnClusterSentence(tableResource)
-	err := (*ts.CHConnection).Exec(ctx, query)
+	err := (*ts.CHConnection).Exec(common.ClusterDDLContext(ctx, tableResource.Cluster, nil), query)
 	if err != nil {
 		return fmt.Errorf("creating Clickhouse table: %v", err)
 	}
@@ -90,7 +92,7 @@ func (ts *CHTableService) CreateTable(ctx context.Context, tableResource TableRe
 
 func (ts *CHTableService) DeleteTable(ctx context.Context, tableResource TableResource) error {
 	query := "DROP TABLE " + qualified(tableResource) + " " + clusterClause(tableResource.Cluster)
-	err := (*ts.CHConnection).Exec(ctx, query)
+	err := (*ts.CHConnection).Exec(common.ClusterDDLContext(ctx, tableResource.Cluster, nil), query)
 	if err != nil {
 		return fmt.Errorf("deleting Clickhouse table: %v", err)
 	}

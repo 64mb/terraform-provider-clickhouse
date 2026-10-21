@@ -31,9 +31,17 @@ func UnmarshalComment(storedComment string) (comment string, cluster string, err
 
 func GetClusterStatement(cluster string) (clusterStatement string) {
 	if cluster != "" {
-		return fmt.Sprintf("ON CLUSTER %s", cluster)
+		return "ON CLUSTER `" + strings.ReplaceAll(strings.ReplaceAll(ClusterName(cluster), "\\", "\\\\"), "`", "\\`") + "`"
 	}
 	return ""
+}
+
+// accept legacy SQL string literals used by the documented cluster macro configuration
+func ClusterName(cluster string) string {
+	if len(cluster) >= 2 && cluster[0] == '\'' && cluster[len(cluster)-1] == '\'' {
+		return strings.NewReplacer("\\\\", "\\", "\\'", "'", "''", "'").Replace(cluster[1 : len(cluster)-1])
+	}
+	return cluster
 }
 
 // Quote all strings on a string slice
