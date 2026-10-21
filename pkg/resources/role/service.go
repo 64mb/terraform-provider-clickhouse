@@ -77,7 +77,7 @@ func getGrantQuery(roleName string, privileges []string, database string) string
 	return strings.Join(queries, "; ")
 }
 
-func (rs *CHRoleService) getRoleGrants(ctx context.Context, roleName string) ([]CHGrant, error) {
+func (rs *CHRoleService) getRoleGrants(ctx context.Context, roleName string) (privileges []CHGrant, err error) {
 	// Use SHOW GRANTS instead of SELECT from system.grants
 	// SHOW GRANTS returns the original granted privileges (e.g., REMOTE)
 	// system.grants returns expanded privileges (e.g., READ + WRITE)
@@ -88,7 +88,12 @@ func (rs *CHRoleService) getRoleGrants(ctx context.Context, roleName string) ([]
 		return nil, fmt.Errorf("error fetching role grants: %w", err)
 	}
 
-	var privileges []CHGrant
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil && err == nil {
+			privileges = nil
+			err = fmt.Errorf("error closing role grants result: %w", closeErr)
+		}
+	}()
 	for rows.Next() {
 		var grantStatement string
 		err := rows.Scan(&grantStatement)
@@ -113,6 +118,9 @@ func (rs *CHRoleService) getRoleGrants(ctx context.Context, roleName string) ([]
 		privileges = append(privileges, grants...)
 	}
 
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error reading role grants: %w", err)
+	}
 	return privileges, nil
 }
 
@@ -204,21 +212,29 @@ func parseGrantStatement(statement, expectedRole string) ([]CHGrant, error) {
 	return grants, nil
 }
 
-
 func (rs *CHRoleService) GetRole(ctx context.Context, roleName string) (*CHRole, error) {
-	roleQuery := fmt.Sprintf("SELECT name FROM system.roles WHERE name = '%s'", roleName)
+	roleQuery := "SELECT name FROM system.roles WHERE name = ?"
 
-	rows, err := (*rs.CHConnection).Query(ctx, roleQuery)
+	rows, err := (*rs.CHConnection).Query(ctx, roleQuery, roleName)
 	if err != nil {
-		return nil, fmt.Errorf("error fetching role: %s", err)
+		return nil, fmt.Errorf("error fetching role: %w", err)
 	}
-	if rows.Next() == false {
+	exists := rows.Next()
+	readErr := rows.Err()
+	closeErr := rows.Close()
+	if readErr != nil {
+		return nil, fmt.Errorf("error reading role: %w", readErr)
+	}
+	if closeErr != nil {
+		return nil, fmt.Errorf("error closing role result: %w", closeErr)
+	}
+	if !exists {
 		return nil, nil
 	}
 
 	privileges, err := rs.getRoleGrants(ctx, roleName)
 	if err != nil {
-		return nil, fmt.Errorf("error fetching role grants: %s", err)
+		return nil, fmt.Errorf("error fetching role grants: %w", err)
 	}
 
 	return &CHRole{

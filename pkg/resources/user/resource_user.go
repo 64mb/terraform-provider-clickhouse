@@ -52,6 +52,11 @@ func resourceUserRead(ctx context.Context, d *schema.ResourceData, meta any) dia
 		return diag.FromErr(fmt.Errorf("resource user read: %v", err))
 	}
 
+	if user == nil {
+		d.SetId("")
+		return nil
+	}
+
 	if err := d.Set("name", user.Name); err != nil {
 		return diag.FromErr(err)
 	}

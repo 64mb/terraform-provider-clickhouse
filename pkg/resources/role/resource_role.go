@@ -80,6 +80,11 @@ func resourceRoleRead(ctx context.Context, d *schema.ResourceData, meta any) dia
 		return diag.FromErr(fmt.Errorf("resource role read: %v", err))
 	}
 
+	if chRole == nil {
+		d.SetId("")
+		return nil
+	}
+
 	roleResource, err := chRole.ToRoleResource()
 	if err != nil {
 		return diag.FromErr(fmt.Errorf("resource role read: %v", err))
