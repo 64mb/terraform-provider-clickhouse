@@ -1,16 +1,16 @@
 terraform {
   required_providers {
     clickhouse = {
-      version = "2.0.0"
-      source  = "hashicorp.com/64mb/clickhouse"
+      version = "~> 1.0.2"
+      source  = "64mb/clickhouse"
     }
   }
 }
 
 
 provider "clickhouse" {
-  port           = 8123
-  clickhouse_url = "127.0.0.1"
-  username       = "default"
-  password       = ""
+  port     = 9000
+  host     = "127.0.0.1"
+  username = "default"
+  password = ""
 }
