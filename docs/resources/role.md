@@ -70,5 +70,12 @@ Refresh uses `SHOW GRANTS` and, when permitted, additional details from
 identically in `SHOW GRANTS`, such as some source READ/WRITE permissions, can
 only be detected when the additional details are accessible.
 
+Updates involving source `READ` or `WRITE` replace the requested grants in one
+server statement. The connection user needs `GRANT OPTION` for the full requested
+scope and the existing grants being replaced. ClickHouse rejects insufficient
+authority before changing grants. These updates do not use `CURRENT GRANTS` to
+silently narrow the assignment. Ordinary database and legacy source privileges
+such as `S3` retain the incremental update behavior described above.
+
 Role operations run on the connected node without `ON CLUSTER`. Partial REVOKE
 management and multiple independent database scopes remain unsupported.

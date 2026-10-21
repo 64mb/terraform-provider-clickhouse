@@ -29,7 +29,7 @@ func TestAccResourceTable(t *testing.T) {
 
 					resource.TestCheckResourceAttr("clickhouse_table.table", "name", testResourceTableTableName),
 					resource.TestCheckResourceAttr("clickhouse_table.table", "database", testResourceTableDatabaseName),
-					resource.TestCheckNoResourceAttr("clickhouse_table.table", "cluster"),
+					resource.TestCheckResourceAttr("clickhouse_table.table", "cluster", ""),
 					resource.TestCheckResourceAttr("clickhouse_table.table", "comment", "This is just a new table"),
 					resource.TestCheckResourceAttr("clickhouse_table.table", "engine", "ReplacingMergeTree"),
 					resource.TestCheckResourceAttr("clickhouse_table.table", "engine_params.#", "1"),
