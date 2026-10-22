@@ -1,7 +1,7 @@
 terraform {
   required_providers {
     clickhouse = {
-      version = "~> 1.1"
+      version = "~> 1.2"
       source  = "registry.opentofu.org/64mb/clickhouse"
     }
   }

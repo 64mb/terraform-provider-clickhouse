@@ -58,6 +58,9 @@ tofu apply
 Use `terraform` in place of `tofu` for the same workflow. Connect through the
 **native TCP protocol**, usually port `9000`. For TLS, set `secure = true` in the
 provider block and use your server's secure native port, commonly `9440`.
+For private CAs on v1.2.0 and later, pass PEM through `ca_cert = file("ca.pem")`
+or `TF_CLICKHOUSE_CA_CERT`. The CA extends system trust without a shell-built
+bundle. See [TLS configuration](docs/index.md#tls-and-additional-certificate-authorities).
 Connection settings can also be supplied directly in the
 [provider configuration](docs/index.md). If you use provider mirrors, allow this
 provider to install directly from `registry.opentofu.org`.
