@@ -70,3 +70,33 @@ materialization for ReplicatedMergeTree and ReplicatedReplacingMergeTree,
 unchanged plans after creation and import, and ALTER preserving data and UUIDs
 on both nodes. Real replication path changes must remain visible and rejected
 without modifying either table.
+
+## Native TLS fixture
+
+`tls/compose.yml` runs one latest ClickHouse server with native TLS on
+`127.0.0.1:19440`. Certificates and private keys are generated locally for two days
+and are never committed:
+
+```sh
+export CLICKHOUSE_TLS_CERT_DIR="$(mktemp -d)"
+sh tests/fixtures/tls/generate-certs.sh "$CLICKHOUSE_TLS_CERT_DIR"
+docker compose -f tests/fixtures/tls/compose.yml up -d --wait --wait-timeout 120
+
+TF_ACC=1 CLICKHOUSE_TLS_TEST_ADDR=127.0.0.1:19440 \
+  CLICKHOUSE_TLS_TEST_CA_FILE="$CLICKHOUSE_TLS_CERT_DIR/ca.pem" \
+  go test -v -count=1 -timeout 3m ./pkg/provider -run '^TestAccProviderTLS$'
+
+docker compose -f tests/fixtures/tls/compose.yml down -v
+rm -rf "$CLICKHOUSE_TLS_CERT_DIR"
+unset CLICKHOUSE_TLS_CERT_DIR
+```
+
+The test verifies PEM from `ca_cert = file(...)` and `TF_CLICKHOUSE_CA_CERT`,
+explicit configuration precedence, database creation/import, unchanged plans,
+actual deletion and rejection of missing or unrelated CAs. Unit tests additionally
+verify hostname rejection, invalid PEM, retained system trust and lazy unknown
+configuration. CI runs this fixture once in the latest cluster job.
+
+The certificate directory must be accessible to Docker. On macOS, if Docker does
+not share the temporary directory, use an absolute path under this checkout's
+ignored `bin/` directory instead of `mktemp -d`, and remove it after testing.

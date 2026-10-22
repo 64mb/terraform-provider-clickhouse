@@ -245,13 +245,15 @@ provider "clickhouse" {
 }
 
 func TestConfigureUnknownValues(t *testing.T) {
-	for _, attribute := range []string{"host", "port", "secure"} {
-		t.Run(attribute, func(t *testing.T) {
+	for _, test := range []struct{ attribute, ca string }{{"host", ""}, {"port", ""}, {"secure", ""}, {"ca_cert", ""}, {"secure", "deferred CA"}} {
+		t.Run(test.attribute+"/"+test.ca, func(t *testing.T) {
+			attribute := test.attribute
 			p := New("test")()
 			values := map[string]cty.Value{
 				"host": cty.StringVal("127.0.0.1"), "port": cty.NumberIntVal(9000),
 				"username": cty.StringVal("default"), "password": cty.StringVal(""),
 				"secure": cty.BoolVal(false), "default_cluster": cty.StringVal(""),
+				"ca_cert": cty.StringVal(test.ca),
 			}
 			values[attribute] = cty.UnknownVal(values[attribute].Type())
 			config := terraform.NewResourceConfigShimmed(cty.ObjectVal(values), (&schema.Resource{Schema: p.Schema}).CoreConfigSchema())

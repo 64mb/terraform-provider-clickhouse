@@ -94,6 +94,14 @@ func New(version string) func() *schema.Provider {
 					Optional:    true,
 					Default:     false,
 				},
+				"ca_cert": {
+					Description: "Additional trusted CA certificates as PEM, requires secure = true. Defaults to TF_CLICKHOUSE_CA_CERT",
+					Type:        schema.TypeString,
+					Optional:    true,
+					DefaultFunc: schema.EnvDefaultFunc("TF_CLICKHOUSE_CA_CERT", ""),
+					// keep known empty [ca_cert] in the SDK diff, [NewExtra] preserves the original PEM
+					StateFunc: func(v interface{}) string { return "pem:" + v.(string) },
+				},
 			},
 			DataSourcesMap: map[string]*schema.Resource{
 				"clickhouse_dbs": datasources.DataSourceDbs(),
@@ -139,9 +147,11 @@ func configure() func(context.Context, *schema.ResourceData) (any, diag.Diagnost
 		}
 
 		var tlsConfig *tls.Config
-		if secure {
-			tlsConfig = &tls.Config{
-				InsecureSkipVerify: false,
+		if !containsAttribute(unknown, "secure") && !containsAttribute(unknown, "ca_cert") {
+			var err error
+			tlsConfig, err = providerTLSConfig(secure, d.Get("ca_cert").(string))
+			if err != nil {
+				return nil, diag.FromErr(err)
 			}
 		}
 		options := &clickhouse.Options{
@@ -175,7 +185,7 @@ func configure() func(context.Context, *schema.ResourceData) (any, diag.Diagnost
 func unknownConfiguration(d *schema.ResourceData) []string {
 	var unknown []string
 	// this SDK does not retain provider raw config, [GetOkExists] preserves unknown primitive values
-	for _, name := range []string{"host", "port", "secure"} {
+	for _, name := range []string{"host", "port", "secure", "ca_cert"} {
 		if _, known := d.GetOkExists(name); !known {
 			unknown = append(unknown, name)
 		}

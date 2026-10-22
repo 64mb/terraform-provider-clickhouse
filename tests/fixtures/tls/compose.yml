@@ -1,0 +1,17 @@
+name: clickhouse-provider-tls
+services:
+  node:
+    image: clickhouse/clickhouse-server:latest
+    environment:
+      CLICKHOUSE_SKIP_USER_SETUP: '1'
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: '1'
+    ports:
+      - "127.0.0.1:19440:9440"
+    volumes:
+      - ./tls.xml:/etc/clickhouse-server/config.d/tls.xml:ro
+      - ${CLICKHOUSE_TLS_CERT_DIR:?set CLICKHOUSE_TLS_CERT_DIR to generated certificates}:/etc/clickhouse-server/tls:ro
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--secure", "--host", "localhost", "--port", "9440", "--config-file", "/etc/clickhouse-server/config.d/tls.xml", "--query", "SELECT 1"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
